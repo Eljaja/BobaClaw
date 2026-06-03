@@ -1,0 +1,16 @@
+[package]
+name = "bobaclaw-skill-forge"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+bobaclaw-core.workspace = true
+bobaclaw-skills.workspace = true
+bobaclaw-state.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+sqlx.workspace = true
