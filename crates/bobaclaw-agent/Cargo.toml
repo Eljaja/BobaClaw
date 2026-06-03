@@ -1,0 +1,15 @@
+[package]
+name = "bobaclaw-agent"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+bobaclaw-core.workspace = true
+bobaclaw-executor.workspace = true
+bobaclaw-provider.workspace = true
+bobaclaw-skills.workspace = true
+bobaclaw-state.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+uuid.workspace = true
