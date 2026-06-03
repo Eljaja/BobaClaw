@@ -1,0 +1,25 @@
+[package]
+name = "bobaclaw"
+version.workspace = true
+edition.workspace = true
+description = "BobaClaw — ChatOps execution agent"
+
+[[bin]]
+name = "bobaclaw"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+bobaclaw-agent.workspace = true
+bobaclaw-core.workspace = true
+bobaclaw-executor.workspace = true
+bobaclaw-gateway.workspace = true
+bobaclaw-provider.workspace = true
+bobaclaw-skill-forge.workspace = true
+bobaclaw-skills.workspace = true
+bobaclaw-state.workspace = true
+clap.workspace = true
+rustyline.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
