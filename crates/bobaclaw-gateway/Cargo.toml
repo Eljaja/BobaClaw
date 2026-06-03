@@ -1,0 +1,15 @@
+[package]
+name = "bobaclaw-gateway"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+axum.workspace = true
+bobaclaw-agent.workspace = true
+bobaclaw-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+uuid.workspace = true
