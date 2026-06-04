@@ -1,4 +1,5 @@
 /target/
+config.local.yaml
 **/*.db
 **/*.db-wal
 **/*.db-shm

@@ -1,0 +1,21 @@
+# systemd unit for BobaClaw scheduler daemon (WSL/Linux server).
+# Install:
+#   cp scripts/bobaclaw-scheduler.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now bobaclaw-scheduler
+#
+# Set BOBACLAW_HOME and path to bobaclaw binary in Environment / ExecStart.
+
+[Unit]
+Description=BobaClaw scheduler (cron + delayed tasks)
+After=network-online.target
+
+[Service]
+Type=simple
+Environment=BOBACLAW_HOME=%h/.bobaclaw
+ExecStart=/usr/local/bin/bobaclaw scheduler start
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target
