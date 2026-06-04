@@ -16,13 +16,15 @@ pub struct OpenAiCompatProvider {
 }
 
 impl OpenAiCompatProvider {
-    pub fn new(cfg: &ProviderConfig, api_key: String) -> Self {
-        Self {
-            client: reqwest::Client::new(),
+    pub fn new(cfg: &ProviderConfig, api_key: String) -> anyhow::Result<Self> {
+        let timeout = std::time::Duration::from_secs(cfg.request_timeout_secs.max(5));
+        let client = reqwest::Client::builder().timeout(timeout).build()?;
+        Ok(Self {
+            client,
             base_url: cfg.base_url.trim_end_matches('/').to_string(),
             api_key,
             model: cfg.model.clone(),
-        }
+        })
     }
 
     pub async fn chat_completion(
@@ -41,7 +43,7 @@ impl OpenAiCompatProvider {
 
         #[derive(Deserialize)]
         struct Choice {
-            message: ChatMessage,
+            message: ApiMessage,
         }
 
         #[derive(Deserialize)]
@@ -68,9 +70,47 @@ impl OpenAiCompatProvider {
             .choices
             .into_iter()
             .next()
-            .map(|c| c.message.content)
+            .map(|c| extract_assistant_text(&c.message))
             .ok_or_else(|| anyhow::anyhow!("empty choices from provider"))
     }
+}
+
+pub(crate) fn content_value_to_string(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Array(parts) => parts
+            .iter()
+            .filter_map(|p| {
+                p.get("text")
+                    .and_then(|t| t.as_str())
+                    .or_else(|| p.as_str())
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+        serde_json::Value::Null => String::new(),
+        other => other.to_string(),
+    }
+}
+
+fn extract_assistant_text(msg: &ApiMessage) -> String {
+    let from_content = msg
+        .content
+        .as_ref()
+        .map(content_value_to_string)
+        .unwrap_or_default();
+    if !from_content.trim().is_empty() {
+        return from_content;
+    }
+    msg.reasoning.clone().unwrap_or_default()
+}
+
+#[derive(Deserialize)]
+struct ApiMessage {
+    role: String,
+    #[serde(default)]
+    content: Option<serde_json::Value>,
+    #[serde(default)]
+    reasoning: Option<String>,
 }
 
 #[async_trait]
