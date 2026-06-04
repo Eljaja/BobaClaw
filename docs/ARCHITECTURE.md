@@ -341,7 +341,7 @@ routing:
 ├── runs/                 # scripts, stdout, stderr, result.json per run
 ├── workspace/
 │   ├── home/
-│   │   ├── AGENTS.md
+│   │   ├── BOBACLAW.md
 │   │   ├── SOUL.md       # опционально, persona
 │   │   ├── skills/
 │   │   └── memory/
@@ -352,7 +352,7 @@ routing:
 
 | Механизм | v1 | v2 |
 |----------|----|----|
-| Prompt injection | AGENTS.md, TOOLS.md | — |
+| Prompt injection | BOBACLAW.md, TOOLS.md | — |
 | Long-term notes | markdown в `memory/` | — |
 | Session search | SQLite FTS на транскриптах | embeddings |
 | User model | — | Honcho-совместимый или свой лёгкий профиль |
