@@ -1,11 +1,27 @@
 use serde::{Deserialize, Serialize};
 
+use crate::channels::{ChannelsConfig, RoutingConfig};
+use crate::context_config::ContextConfig;
+use crate::scheduler::{CronConfig, SchedulerConfig};
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BobaConfig {
     #[serde(default)]
     pub provider: ProviderConfig,
     #[serde(default)]
     pub gateway: GatewayConfig,
+    #[serde(default)]
+    pub executor: ExecutorConfig,
+    #[serde(default)]
+    pub context: ContextConfig,
+    #[serde(default)]
+    pub channels: ChannelsConfig,
+    #[serde(default)]
+    pub routing: RoutingConfig,
+    #[serde(default)]
+    pub scheduler: SchedulerConfig,
+    #[serde(default)]
+    pub cron: CronConfig,
     #[serde(default = "default_agent_group")]
     pub default_agent_group: String,
 }
@@ -19,6 +35,12 @@ impl Default for BobaConfig {
         Self {
             provider: ProviderConfig::default(),
             gateway: GatewayConfig::default(),
+            executor: ExecutorConfig::default(),
+            context: ContextConfig::default(),
+            channels: ChannelsConfig::default(),
+            routing: RoutingConfig::default(),
+            scheduler: SchedulerConfig::default(),
+            cron: CronConfig::default(),
             default_agent_group: default_agent_group(),
         }
     }
@@ -28,10 +50,16 @@ impl Default for BobaConfig {
 pub struct ProviderConfig {
     #[serde(default = "default_base_url")]
     pub base_url: String,
+    /// Inline key (optional). Prefer env via `api_key_env` for anything non-throwaway.
+    #[serde(default)]
+    pub api_key: String,
     #[serde(default)]
     pub api_key_env: String,
     #[serde(default = "default_model")]
     pub model: String,
+    /// HTTP timeout for each LLM request (seconds).
+    #[serde(default = "default_request_timeout_secs")]
+    pub request_timeout_secs: u64,
 }
 
 fn default_base_url() -> String {
@@ -42,12 +70,18 @@ fn default_model() -> String {
     "gpt-4o-mini".into()
 }
 
+fn default_request_timeout_secs() -> u64 {
+    300
+}
+
 impl Default for ProviderConfig {
     fn default() -> Self {
         Self {
             base_url: default_base_url(),
+            api_key: String::new(),
             api_key_env: "OPENAI_API_KEY".into(),
             model: default_model(),
+            request_timeout_secs: default_request_timeout_secs(),
         }
     }
 }
@@ -66,6 +100,33 @@ fn default_bind() -> String {
 
 fn default_port() -> u16 {
     18790
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecutorConfig {
+    /// bubblewrap `--share-net` for `exec` and capsules (egress to the internet).
+    #[serde(default = "default_executor_network")]
+    pub network: bool,
+    /// Writable `/usr/local`, apt state, and `HOME` under `workspace/.bobaclaw-sandbox/` for pip/apt/cargo installs.
+    #[serde(default = "default_executor_sandbox_packages")]
+    pub sandbox_packages: bool,
+}
+
+fn default_executor_network() -> bool {
+    true
+}
+
+fn default_executor_sandbox_packages() -> bool {
+    true
+}
+
+impl Default for ExecutorConfig {
+    fn default() -> Self {
+        Self {
+            network: default_executor_network(),
+            sandbox_packages: default_executor_sandbox_packages(),
+        }
+    }
 }
 
 impl Default for GatewayConfig {
@@ -96,14 +157,47 @@ impl BobaConfig {
     }
 
     pub fn resolve_api_key(&self) -> anyhow::Result<String> {
+        let inline = self.provider.api_key.trim();
+        if !inline.is_empty() {
+            return Ok(inline.to_string());
+        }
         if self.provider.api_key_env.is_empty() {
-            anyhow::bail!("provider.api_key_env is empty");
+            anyhow::bail!("set provider.api_key or provider.api_key_env");
         }
         std::env::var(&self.provider.api_key_env).map_err(|_| {
             anyhow::anyhow!(
-                "missing API key: set {} or run `bobaclaw init`",
+                "missing API key: set provider.api_key, env {}, or run `bobaclaw init`",
                 self.provider.api_key_env
             )
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_inline_api_key() {
+        let mut cfg = BobaConfig::default();
+        cfg.provider.api_key = "sk-test".into();
+        assert_eq!(cfg.resolve_api_key().unwrap(), "sk-test");
+    }
+
+    #[test]
+    fn save_and_load_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.yaml");
+        let cfg = BobaConfig::default();
+        BobaConfig::save(&path, &cfg).unwrap();
+        let loaded = BobaConfig::load(&path).unwrap();
+        assert_eq!(loaded.default_agent_group, cfg.default_agent_group);
+    }
+
+    #[test]
+    fn load_missing_returns_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nope.yaml");
+        assert!(BobaConfig::load(&path).unwrap().context.compression_enabled);
     }
 }

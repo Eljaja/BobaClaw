@@ -12,3 +12,6 @@ serde_yaml.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
 dirs.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
