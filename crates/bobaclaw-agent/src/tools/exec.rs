@@ -1,4 +1,4 @@
-use crate::progress::{emit, AgentEvent, AgentProgress};
+use crate::progress::{emit, sanitize_status_text, AgentEvent, AgentProgress};
 use bobaclaw_core::{head_tail_with_hint, BobaConfig, BobaPaths, CommandCapsuleManifest};
 use bobaclaw_executor::{BwrapExecutor, ExecutorProfile};
 use bobaclaw_provider::{FunctionSpec, ToolCall, ToolSpec};
@@ -193,7 +193,7 @@ fn preview_output(summary: &str) -> String {
     summary
         .lines()
         .find(|l| !l.trim().is_empty())
-        .map(|l| truncate_label(l.trim(), 56))
+        .map(|l| sanitize_status_text(l.trim(), 56))
         .unwrap_or_else(|| "ok".into())
 }
 

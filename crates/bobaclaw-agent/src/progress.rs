@@ -38,21 +38,54 @@ pub(crate) fn emit(progress: Option<&dyn AgentProgress>, event: AgentEvent) {
     }
 }
 
+/// One-line status for CLI / logs (no raw tool output).
+pub fn format_status_line(event: &AgentEvent) -> String {
+    match event {
+        AgentEvent::LlmThinking { iteration } => format!("Thinking… (step {iteration})"),
+        AgentEvent::ToolStart { name, label } => {
+            format!("Running {name}: {}", sanitize_status_text(label, 72))
+        }
+        AgentEvent::ToolEnd { name, exit_code, .. } => {
+            if *exit_code == 0 {
+                format!("Finished {name} (ok)")
+            } else {
+                format!("Finished {name} (exit {exit_code})")
+            }
+        }
+        AgentEvent::Compacting { tokens } if *tokens > 0 => {
+            format!("Compacting context (~{tokens} tokens)…")
+        }
+        AgentEvent::Compacting { .. } => "Compacting context…".into(),
+        AgentEvent::AssistantChunk { .. } => "Writing reply…".into(),
+    }
+}
+
+/// Strip HTML-ish noise from tool output before optional previews.
+pub fn sanitize_status_text(s: &str, max: usize) -> String {
+    let flat: String = strip_html_tags(s)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    truncate_preview(&flat, max)
+}
+
+fn strip_html_tags(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut in_tag = false;
+    for c in s.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => out.push(c),
+            _ => {}
+        }
+    }
+    out
+}
+
 impl fmt::Display for AgentEvent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            AgentEvent::LlmThinking { iteration } => {
-                write!(f, "думаю (шаг {iteration})")
-            }
-            AgentEvent::ToolStart { name, label } => write!(f, "{name}: {label}"),
-            AgentEvent::ToolEnd {
-                name,
-                exit_code,
-                preview,
-            } => write!(f, "{name} exit={exit_code} {preview}"),
-            AgentEvent::Compacting { tokens } => write!(f, "compacting context (~{tokens} tok)"),
-            AgentEvent::AssistantChunk { text } => write!(f, "{}", truncate_preview(text, 80)),
-        }
+        write!(f, "{}", format_status_line(self))
     }
 }
 

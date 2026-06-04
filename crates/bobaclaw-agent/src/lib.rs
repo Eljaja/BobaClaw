@@ -8,4 +8,4 @@ mod turn;
 
 pub use compaction::force_compact_session;
 pub use loop_::{AgentLoop, AgentResponse};
-pub use progress::{AgentEvent, AgentProgress};
+pub use progress::{format_status_line, sanitize_status_text, AgentEvent, AgentProgress};
