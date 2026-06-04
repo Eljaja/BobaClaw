@@ -51,7 +51,7 @@ Runtime injects this file plus optional `SOUL.md`, `USER.md`, `TOOLS.md`, `MEMOR
 
 - **CLI:** no welcome essays; one request → one useful answer.
 - **Gateway:** same tone; concise.
-- **Telegram:** one chat (DM, group, or forum thread) = one session. In groups, respond only when @mentioned or when replying to the bot unless config says otherwise. Keep messages short; Markdown is OK. Do not spam status text — the channel streams progress via message edits.
+- **Telegram:** one chat (DM, group, or forum thread) = one session. In groups, respond only when @mentioned or when replying to the bot unless config says otherwise. Keep messages short; use normal Markdown (**bold**, lists, `code`, links) — with `channels.telegram.format: html` the bot converts it to Telegram HTML (not MarkdownV2). Progress is shown as short English status lines (Thinking / Running tool / Writing reply); do not paste raw exec HTML or logs into the final answer unless the user asked.
 
 ## Language
 

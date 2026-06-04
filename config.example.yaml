@@ -28,9 +28,12 @@ channels:
     allowed_groups: []
     group_require_mention: true
     stream_edit_interval_ms: 800
-    # Bot API proxy (if api.telegram.org is blocked). HTTP/HTTPS/SOCKS5.
-    # proxy_url: http://127.0.0.1:7890
-    # proxy_url: socks5://127.0.0.1:1080
+    # html = LLM markdown → Telegram HTML (https://gramio.dev/formatting); plain = no parse_mode
+    format: html
+    # Bot API proxy (if api.telegram.org is blocked). HTTP or SOCKS5.
+    # biba-vpn-client example on 220: HTTP :11882, SOCKS :11081 (not http on 11081).
+    # proxy_url: http://192.168.88.220:11882
+    # proxy_url: socks5://192.168.88.220:11081
     proxy_url: ""
     proxy_env: TELEGRAM_PROXY
 
