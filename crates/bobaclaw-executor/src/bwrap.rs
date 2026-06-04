@@ -6,10 +6,66 @@ use bobaclaw_core::CommandCapsuleManifest;
 use crate::doctor::check_bwrap;
 use crate::profile::{ExecutorProfile, ProfileKind};
 use crate::run::{ExecutionResult, RunArtifacts};
+use crate::sandbox::{append_sandbox_args, prepare_package_dirs};
 
 pub struct BwrapExecutor;
 
 impl BwrapExecutor {
+    /// Run a shell command with the agent workspace mounted read-write at `/workspace`.
+    pub fn exec_command(
+        profile: &ExecutorProfile,
+        workspace: &Path,
+        run_dir: &Path,
+        command: &str,
+    ) -> anyhow::Result<ExecutionResult> {
+        std::fs::create_dir_all(workspace)?;
+        std::fs::create_dir_all(run_dir)?;
+        if profile.allow_package_install {
+            prepare_package_dirs(workspace)?;
+        }
+
+        let check = check_bwrap();
+        if !check.user_ns_ok {
+            anyhow::bail!("bubblewrap unavailable: {}", check.message);
+        }
+
+        let bwrap = which_bwrap()?;
+        let workspace = workspace.canonicalize()?;
+        let run_dir = run_dir.canonicalize()?;
+
+        let mut cmd = Command::new(&bwrap);
+        append_base_ro_binds(&mut cmd);
+        cmd.args([
+            "--bind",
+            workspace.to_str().unwrap(),
+            "/workspace",
+            "--bind",
+            run_dir.to_str().unwrap(),
+            "/capsule",
+            "--chdir",
+            "/workspace",
+            "--dev",
+            "/dev",
+        ]);
+        append_sandbox_args(&mut cmd, profile, &workspace);
+        cmd.args(["--", "/bin/bash", "-lc", command]);
+
+        let output = cmd.output()?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let code = output.status.code().unwrap_or(1);
+
+        let manifest = CommandCapsuleManifest {
+            language: "bash".into(),
+            argv: vec!["/bin/bash".into(), "-lc".into(), command.into()],
+            executor_profile: profile.id().into(),
+            timeout_secs: 120,
+            network: profile.allow_network,
+        };
+        let artifacts = RunArtifacts::prepare(&run_dir, command, &manifest)?;
+        artifacts.write_result(code, &stdout, &stderr)
+    }
+
     pub fn execute(
         profile: &ExecutorProfile,
         run_dir: &Path,
@@ -38,25 +94,7 @@ impl BwrapExecutor {
         let bwrap = which_bwrap()?;
         let work = artifacts.run_dir.canonicalize()?;
         let mut cmd = Command::new(&bwrap);
-        cmd.args([
-            "--unshare-all",
-            "--die-with-parent",
-            "--new-session",
-            "--ro-bind",
-            "/usr",
-            "/usr",
-            "--ro-bind",
-            "/bin",
-            "/bin",
-            "--ro-bind",
-            "/lib",
-            "/lib",
-        ]);
-
-        if Path::new("/lib64").exists() {
-            cmd.args(["--ro-bind", "/lib64", "/lib64"]);
-        }
-
+        append_base_ro_binds(&mut cmd);
         cmd.args([
             "--bind",
             work.to_str().unwrap(),
@@ -65,15 +103,9 @@ impl BwrapExecutor {
             "/work",
             "--dev",
             "/dev",
-            "--",
-            "/work/script.sh",
         ]);
-
-        if !profile.allow_network {
-            // default bwrap has no network namespace egress without --share-net
-        } else {
-            cmd.arg("--share-net");
-        }
+        append_sandbox_args(&mut cmd, profile, &work);
+        cmd.args(["--", "/work/script.sh"]);
 
         let output = cmd.output()?;
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -101,6 +133,26 @@ impl BwrapExecutor {
             }
             _ => Self::run_bwrap(&ExecutorProfile::bwrap_default(), artifacts),
         }
+    }
+}
+
+fn append_base_ro_binds(cmd: &mut Command) {
+    cmd.args([
+        "--unshare-all",
+        "--die-with-parent",
+        "--new-session",
+        "--ro-bind",
+        "/usr",
+        "/usr",
+        "--ro-bind",
+        "/bin",
+        "/bin",
+        "--ro-bind",
+        "/lib",
+        "/lib",
+    ]);
+    if Path::new("/lib64").exists() {
+        cmd.args(["--ro-bind", "/lib64", "/lib64"]);
     }
 }
 

@@ -2,6 +2,7 @@ mod bwrap;
 mod doctor;
 mod profile;
 mod run;
+mod sandbox;
 
 pub use bwrap::BwrapExecutor;
 pub use doctor::check_bwrap;

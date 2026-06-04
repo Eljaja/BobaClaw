@@ -14,6 +14,8 @@ pub enum ProfileKind {
 pub struct ExecutorProfile {
     pub kind: ProfileKind,
     pub allow_network: bool,
+    /// Writable package-manager paths under workspace `.bobaclaw-sandbox/`.
+    pub allow_package_install: bool,
     pub readonly_root: bool,
 }
 
@@ -22,7 +24,39 @@ impl ExecutorProfile {
         Self {
             kind: ProfileKind::BwrapDefault,
             allow_network: false,
+            allow_package_install: false,
             readonly_root: true,
+        }
+    }
+
+    pub fn bwrap_networked() -> Self {
+        Self {
+            kind: ProfileKind::BwrapNetworked,
+            allow_network: true,
+            allow_package_install: true,
+            readonly_root: true,
+        }
+    }
+
+    pub fn from_network_enabled(network: bool) -> Self {
+        Self::from_config(network, network)
+    }
+
+    pub fn from_config(network: bool, sandbox_packages: bool) -> Self {
+        if network {
+            Self {
+                kind: ProfileKind::BwrapNetworked,
+                allow_network: true,
+                allow_package_install: sandbox_packages,
+                readonly_root: true,
+            }
+        } else {
+            Self {
+                kind: ProfileKind::BwrapDefault,
+                allow_network: false,
+                allow_package_install: false,
+                readonly_root: true,
+            }
         }
     }
 
@@ -30,6 +64,7 @@ impl ExecutorProfile {
         Self {
             kind: ProfileKind::HostDanger,
             allow_network: true,
+            allow_package_install: true,
             readonly_root: false,
         }
     }
@@ -42,5 +77,33 @@ impl ExecutorProfile {
             ProfileKind::SystemdRun => "systemd-run",
             ProfileKind::HostDanger => "host-danger",
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn profile_ids() {
+        assert_eq!(ExecutorProfile::bwrap_default().id(), "bwrap-default");
+        assert_eq!(
+            ExecutorProfile::from_network_enabled(true).id(),
+            "bwrap-networked"
+        );
+    }
+
+    #[test]
+    fn network_flag() {
+        assert!(!ExecutorProfile::bwrap_default().allow_network);
+        assert!(ExecutorProfile::from_config(true, false).allow_network);
+    }
+
+    #[test]
+    fn packages_follow_config() {
+        let on = ExecutorProfile::from_config(true, true);
+        assert!(on.allow_package_install);
+        let off = ExecutorProfile::from_config(true, false);
+        assert!(!off.allow_package_install);
     }
 }
