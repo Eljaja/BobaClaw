@@ -10,7 +10,7 @@ pub mod truncate;
 
 pub use channels::{
     ChannelPeer, ChannelsConfig, DmPolicy, GroupPolicy, RouteMatch, RoutingConfig, RoutingRule,
-    TelegramConfig,
+    TelegramConfig, TelegramFormat,
 };
 pub use config::{BobaConfig, ExecutorConfig, GatewayConfig, ProviderConfig};
 pub use scheduler::{CronConfig, CronJobConfig, DeliverTarget, SchedulerConfig};

@@ -70,6 +70,20 @@ pub struct TelegramConfig {
     pub proxy_url: String,
     #[serde(default)]
     pub proxy_env: String,
+    /// `html` — markdown → Telegram HTML (GramIO-style); `plain` — no formatting.
+    #[serde(default = "default_telegram_format")]
+    pub format: TelegramFormat,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TelegramFormat {
+    Plain,
+    Html,
+}
+
+fn default_telegram_format() -> TelegramFormat {
+    TelegramFormat::Html
 }
 
 fn default_telegram_token_env() -> String {
@@ -99,6 +113,7 @@ impl Default for TelegramConfig {
             stream_edit_interval_ms: default_stream_edit_ms(),
             proxy_url: String::new(),
             proxy_env: String::new(),
+            format: default_telegram_format(),
         }
     }
 }
