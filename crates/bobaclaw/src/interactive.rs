@@ -1,5 +1,7 @@
-use bobaclaw_agent::AgentLoop;
+use bobaclaw_agent::{force_compact_session, AgentLoop};
 use bobaclaw_core::{BobaConfig, BobaPaths, NormalizedRequest};
+
+use crate::chat_ui::ChatUi;
 use bobaclaw_skills::SkillRegistry;
 use bobaclaw_state::{SessionStore, StateDb};
 use rustyline::error::ReadlineError;
@@ -25,16 +27,15 @@ pub async fn run_chat(
         }
     };
     let sessions = SessionStore::new(state.pool());
-    let session_id = sessions.get_or_create_cli(&agent_group).await?;
-
-    let skills = SkillRegistry::load(&paths.group_workspace(&agent_group))?;
-    print_banner(&config, &agent_group, &session_id, &skills);
+    let _session_id = sessions.get_or_create_cli(&agent_group).await?;
 
     let history_path = paths.home.join("chat-history.txt");
     let mut rl = DefaultEditor::new()?;
     let _ = rl.load_history(&history_path);
+    let ui = ChatUi::new();
 
     loop {
+        drain_cli_outbox(&paths);
         let line = match rl.readline("bobaclaw> ") {
             Ok(l) => l,
             Err(ReadlineError::Interrupted) => {
@@ -45,16 +46,26 @@ pub async fn run_chat(
                 println!("\nПока.");
                 break;
             }
-            Err(e) => return Err(e.into()),
+            Err(e) => {
+                println!("\nОшибка ввода: {e:#} (попробуйте ещё раз или /quit)\n");
+                continue;
+            }
         };
 
-        let line = line.trim();
+        let line = line.trim().trim_end_matches('\r');
         if line.is_empty() {
             continue;
         }
         let _ = rl.add_history_entry(line);
 
-        if let Some(reply) = handle_slash(line, &paths, &config, &agent_group, &state).await? {
+        if let Some(reply) = match handle_slash(line, &paths, &config, &agent_group, &state).await
+        {
+            Ok(v) => v,
+            Err(e) => {
+                println!("\nОшибка команды: {e:#}\n");
+                continue;
+            }
+        } {
             if reply == "__QUIT__" {
                 println!("Пока.");
                 break;
@@ -73,33 +84,14 @@ pub async fn run_chat(
             continue;
         };
 
-        print!("… ");
-        let _ = std::io::Write::flush(&mut std::io::stdout());
         let req = NormalizedRequest::cli(line, &agent_group);
-        match agent.handle(req).await {
-            Ok(resp) => {
-                println!("\n{}\n", resp.text);
-                if resp.executed {
-                    if let Some(run_id) = &resp.run_id {
-                        eprintln!("[run {run_id} · session {}]", resp.session_id);
-                    }
-                }
-            }
-            Err(e) => println!("\nОшибка: {e}\n"),
+        if let Err(e) = ui.run_agent_turn(agent, req).await {
+            println!("\n\x1b[31mОшибка агента:\x1b[0m {e:#}\n");
         }
     }
 
     let _ = rl.save_history(&history_path);
     Ok(())
-}
-
-fn print_banner(config: &BobaConfig, group: &str, session_id: &str, skills: &SkillRegistry) {
-    println!("BobaClaw interactive · group={group} · model={}", config.provider.model);
-    println!("session={session_id}");
-    if !skills.names().is_empty() {
-        println!("skills: {}", skills.names().join(", "));
-    }
-    println!("Выполнение: run: <cmd>  |  /help  |  /quit\n");
 }
 
 async fn handle_slash(
@@ -140,6 +132,14 @@ async fn handle_slash(
             }
             Ok(Some(lines.join("\n")))
         }
+        "/compact" => {
+            let id = SessionStore::new(pool).get_or_create_cli(agent_group).await?;
+            force_compact_session(pool, config, &id, None).await?;
+            Ok(Some(
+                "Контекст сжат: в историю добавлено compaction-сообщение (как Hermes/OpenClaw)."
+                    .into(),
+            ))
+        }
         "/doctor" => {
             let mut out = String::from("doctor (кратко):\n");
             match config.resolve_api_key() {
@@ -151,25 +151,55 @@ async fn handle_slash(
                 "  bwrap: found={} user_ns={}\n",
                 b.bwrap_found, b.user_ns_ok
             ));
+            out.push_str(&format!(
+                "  executor: network={} sandbox_packages={}\n",
+                config.executor.network, config.executor.sandbox_packages
+            ));
+            out.push_str(&format!(
+                "  context: window={} reserve={} keep_recent={} compression={}\n",
+                config.context.context_window_tokens,
+                config.context.reserve_tokens,
+                config.context.keep_recent_messages,
+                config.context.compression_enabled
+            ));
             Ok(Some(out))
         }
         _ => Ok(None),
     }
 }
 
-fn help_text() -> String {
-    r#"Команды:
-  /help, /?        эта справка
-  /quit, /exit, /q выход
-  /new, /clear     новая сессия (история в state.db)
-  /session         показать id сессии
-  /skills          список skills
-  /doctor          быстрая проверка окружения
+/// Deliver scheduled CLI messages written by the background scheduler.
+fn drain_cli_outbox(paths: &BobaPaths) {
+    let dir = paths.home.join("outbox");
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return;
+    };
+    let mut files: Vec<_> = entries.flatten().filter(|e| e.path().is_file()).collect();
+    files.sort_by_key(|e| e.file_name());
+    for entry in files {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !name.starts_with("due_") {
+            continue;
+        }
+        let Ok(body) = std::fs::read_to_string(entry.path()) else {
+            continue;
+        };
+        println!("\n\x1b[36m⏰ Запланированное сообщение\x1b[0m\n{body}\n");
+        let _ = std::fs::remove_file(entry.path());
+    }
+}
 
-Сообщения агенту — обычный текст.
-Sandbox: run: echo hello
-         execute: ls -la
-         ! pwd
-         bash: whoami"#
+fn help_text() -> String {
+    r#"Служебные команды (не для модели):
+  /help, /?        справка
+  /quit, /exit, /q выход
+  /new, /clear     новая сессия
+  /session         id сессии
+  /compact         LLM-сжатие истории (Hermes/OpenClaw)
+  /skills          skills в workspace
+  /doctor          проверка окружения
+
+Отложенные задачи: tool schedule; список: bobaclaw schedule list
+  Планировщик: bobaclaw scheduler start (daemon, отдельный терминал)"#
         .to_string()
 }

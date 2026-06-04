@@ -1,3 +1,5 @@
+use bobaclaw_channel_telegram::{approve_pairing, list_pending_pairing, run_telegram_polling};
+use bobaclaw_scheduler::{run_scheduler_daemon, spawn_embedded_scheduler};
 use bobaclaw_core::{BobaConfig, BobaPaths, NormalizedRequest};
 use bobaclaw_executor::check_bwrap;
 use bobaclaw_gateway::serve;
@@ -7,7 +9,9 @@ use bobaclaw_state::StateDb;
 use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 
+mod chat_ui;
 mod interactive;
+mod terminal_md;
 
 #[derive(Parser)]
 #[command(name = "bobaclaw", about = "BobaClaw ChatOps execution agent")]
@@ -43,6 +47,64 @@ enum Commands {
         #[command(subcommand)]
         command: SkillsCommand,
     },
+    /// External messaging channels
+    Channel {
+        #[command(subcommand)]
+        command: ChannelCommand,
+    },
+    /// Approve DM pairing codes
+    Pairing {
+        #[command(subcommand)]
+        command: PairingCommand,
+    },
+    /// List or cancel one-shot scheduled tasks
+    Schedule {
+        #[command(subcommand)]
+        command: ScheduleCommand,
+    },
+    /// Background scheduler (cron + delayed tasks)
+    Scheduler {
+        #[command(subcommand)]
+        action: SchedulerAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum SchedulerAction {
+    /// Run scheduler as a foreground daemon (Ctrl+C to stop)
+    Start,
+}
+
+#[derive(Subcommand)]
+enum ScheduleCommand {
+    List,
+    Cancel { id: String },
+}
+
+#[derive(Subcommand)]
+enum ChannelCommand {
+    /// Long-poll Telegram Bot API and run the agent per message
+    Telegram {
+        #[command(subcommand)]
+        action: TelegramAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum TelegramAction {
+    Start,
+}
+
+#[derive(Subcommand)]
+enum PairingCommand {
+    List {
+        #[arg(long, default_value = "telegram")]
+        channel: String,
+    },
+    Approve {
+        channel: String,
+        code: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -76,13 +138,22 @@ async fn main() -> anyhow::Result<()> {
         Commands::Agent { message, group } => {
             cmd_agent(&paths, &config, &message, group).await?
         }
-        Commands::Chat { group } => interactive::run_chat(paths, config, group).await?,
+        Commands::Chat { group } => {
+            spawn_embedded_scheduler(paths.clone(), config.clone());
+            interactive::run_chat(paths, config, group).await?
+        }
         Commands::Gateway { action } => match action {
             GatewayAction::Start => serve(paths, config).await?,
         },
         Commands::Skills { command } => {
             cmd_skills(&paths, &config, command).await?
         }
+        Commands::Channel { command } => cmd_channel(paths, config, command).await?,
+        Commands::Pairing { command } => cmd_pairing(&paths, command).await?,
+        Commands::Schedule { command } => cmd_schedule(&paths, command).await?,
+        Commands::Scheduler { action } => match action {
+            SchedulerAction::Start => run_scheduler_daemon(paths, config).await?,
+        },
     }
     Ok(())
 }
@@ -136,17 +207,129 @@ fn cmd_doctor(paths: &BobaPaths, config: &BobaConfig) -> anyhow::Result<()> {
     println!("  state.db: {}", paths.state_db.display());
 
     match config.resolve_api_key() {
+        Ok(_) if !config.provider.api_key.trim().is_empty() => {
+            println!("  api key: OK (inline in config.yaml)");
+        }
         Ok(_) => println!("  api key: OK ({})", config.provider.api_key_env),
         Err(e) => println!("  api key: MISSING — {e}"),
     }
 
     println!("  provider: {} model={}", config.provider.base_url, config.provider.model);
+    println!(
+        "  llm timeout: {}s",
+        config.provider.request_timeout_secs
+    );
+    println!(
+        "  executor: network={} sandbox_packages={} (bwrap --share-net + .bobaclaw-sandbox)",
+        config.executor.network, config.executor.sandbox_packages
+    );
 
     let bwrap = check_bwrap();
     println!(
         "  bubblewrap: found={} user_ns={} — {}",
         bwrap.bwrap_found, bwrap.user_ns_ok, bwrap.message
     );
+
+    let tg = &config.channels.telegram;
+    let pid = paths.home.join("scheduler.pid");
+    let daemon = if pid.exists() {
+        format!("pidfile {}", pid.display())
+    } else {
+        "not running (start: bobaclaw scheduler start)".into()
+    };
+    println!(
+        "  scheduler: enabled={} embedded={} tick={}s cron_jobs={} daemon: {daemon}",
+        config.scheduler.enabled,
+        config.scheduler.embedded,
+        config.scheduler.tick_secs,
+        config.cron.jobs.len(),
+    );
+    println!(
+        "  telegram: enabled={} dm_policy={:?} group_policy={:?}",
+        tg.enabled, tg.dm_policy, tg.group_policy
+    );
+    match tg.resolve_bot_token() {
+        Ok(_) => println!("  telegram token: OK"),
+        Err(e) => println!("  telegram token: {e}"),
+    }
+    match tg.resolve_proxy() {
+        Some(url) => println!("  telegram proxy: {url}"),
+        None => println!("  telegram proxy: (direct)"),
+    }
+    Ok(())
+}
+
+async fn cmd_channel(
+    paths: BobaPaths,
+    config: BobaConfig,
+    command: ChannelCommand,
+) -> anyhow::Result<()> {
+    match command {
+        ChannelCommand::Telegram { action } => match action {
+            TelegramAction::Start => {
+                if !config.channels.telegram.enabled {
+                    anyhow::bail!("enable channels.telegram.enabled in config.yaml");
+                }
+                run_telegram_polling(paths, config).await?;
+            }
+        },
+    }
+    Ok(())
+}
+
+async fn cmd_schedule(paths: &BobaPaths, command: ScheduleCommand) -> anyhow::Result<()> {
+    let state = StateDb::open(&paths.state_db).await?;
+    let store = bobaclaw_state::ScheduledTaskStore::new(state.pool());
+    match command {
+        ScheduleCommand::List => {
+            let rows = store.list_pending().await?;
+            if rows.is_empty() {
+                println!("no pending scheduled tasks");
+            }
+            for t in rows {
+                println!(
+                    "{} run_at={} group={} deliver={}/{} prompt={}",
+                    t.id,
+                    t.run_at,
+                    t.agent_group,
+                    t.deliver_channel.as_deref().unwrap_or("cli"),
+                    t.deliver_peer.as_deref().unwrap_or("-"),
+                    t.prompt.chars().take(60).collect::<String>()
+                );
+            }
+        }
+        ScheduleCommand::Cancel { id } => {
+            if store.cancel(&id).await? {
+                println!("cancelled {id}");
+            } else {
+                println!("not found or not pending: {id}");
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn cmd_pairing(paths: &BobaPaths, command: PairingCommand) -> anyhow::Result<()> {
+    match command {
+        PairingCommand::List { channel } => {
+            let rows = list_pending_pairing(paths, Some(&channel)).await?;
+            if rows.is_empty() {
+                println!("no pending pairing for {channel}");
+            }
+            for r in rows {
+                println!(
+                    "{} peer={} code={} name={}",
+                    r.channel, r.peer, r.code, r.display_name
+                );
+            }
+        }
+        PairingCommand::Approve { channel, code } => {
+            match approve_pairing(paths, &channel, &code).await? {
+                Some(peer) => println!("approved {channel} peer={peer}"),
+                None => println!("no pending request for code {code}"),
+            }
+        }
+    }
     Ok(())
 }
 
@@ -160,7 +343,11 @@ async fn cmd_agent(
     let req = NormalizedRequest::cli(message, &agent_group);
     let agent = bobaclaw_agent::AgentLoop::new(paths.clone(), config.clone()).await?;
     let resp = agent.handle(req).await?;
-    println!("{}", resp.text);
+    let color = std::env::var("NO_COLOR").is_err()
+        && std::io::IsTerminal::is_terminal(&std::io::stdout());
+    for line in terminal_md::render_markdown_lines(&resp.text, color) {
+        println!("{line}");
+    }
     if let Some(run_id) = resp.run_id {
         eprintln!("run_id={run_id} session_id={}", resp.session_id);
     }

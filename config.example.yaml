@@ -1,0 +1,58 @@
+# Copy to ~/.bobaclaw/config.yaml and adjust.
+
+provider:
+  base_url: https://api.openai.com/v1
+  api_key_env: OPENAI_API_KEY
+  model: gpt-4o-mini
+
+default_agent_group: home
+
+executor:
+  network: true
+  sandbox_packages: true
+
+gateway:
+  bind: 127.0.0.1
+  port: 18790
+
+channels:
+  telegram:
+    enabled: true
+    bot_token_env: TELEGRAM_BOT_TOKEN
+    polling: true
+    # DM: pairing | allowlist | open
+    dm_policy: pairing
+    allow_from: []
+    # Groups: allowlist | open | disabled
+    group_policy: allowlist
+    allowed_groups: []
+    group_require_mention: true
+    stream_edit_interval_ms: 800
+    # Bot API proxy (if api.telegram.org is blocked). HTTP/HTTPS/SOCKS5.
+    # proxy_url: http://127.0.0.1:7890
+    # proxy_url: socks5://127.0.0.1:1080
+    proxy_url: ""
+    proxy_env: TELEGRAM_PROXY
+
+scheduler:
+  enabled: true
+  embedded: false   # false = use `bobaclaw scheduler start` daemon
+  tick_secs: 15
+
+# Recurring jobs (cron syntax, 5 fields: min hour dom month dow)
+cron:
+  jobs: []
+  # - id: monday-briefing
+  #   cron: "0 9 * * 1"
+  #   agent_group: home
+  #   prompt: "Weekly summary for the user"
+  #   deliver:
+  #     channel: telegram
+  #     peer: "123456789"
+
+routing:
+  rules:
+    - match:
+        channel: telegram
+        peer: "*"
+      agent_group: home
