@@ -7,3 +7,6 @@ config.local.yaml
 # Local upstream snapshots (see references/README.md)
 /references/*
 !/references/README.md
+scripts/test-proxy-220-remote.sh
+scripts/test-proxy-220.sh
+scripts/test-telegram-connect.sh
