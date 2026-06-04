@@ -3,7 +3,7 @@ use std::sync::Arc;
 use bobaclaw_agent::AgentLoop;
 use bobaclaw_core::{
     evaluate_telegram_trust, resolve_agent_group, BobaConfig, BobaPaths, DmPolicy,
-    NormalizedRequest, TrustDecision, TrustInput,
+    NormalizedRequest, TelegramFormat, TrustDecision, TrustInput,
 };
 use bobaclaw_state::{PairingStore, StateDb};
 use tokio::sync::Mutex;
@@ -11,6 +11,7 @@ use tracing::{info, warn};
 
 use crate::api::TelegramApi;
 use crate::ingress::{parse_message, InboundMessage};
+use crate::status::{initial_activity, stream_message};
 use crate::stream::TelegramStream;
 
 pub async fn run_telegram_polling(
@@ -18,6 +19,10 @@ pub async fn run_telegram_polling(
     config: BobaConfig,
 ) -> anyhow::Result<()> {
     let tg = &config.channels.telegram;
+    match tg.resolve_proxy() {
+        Some(p) => info!("telegram Bot API proxy: {p}"),
+        None => info!("telegram Bot API: direct (no proxy)"),
+    }
     let api = TelegramApi::from_config(tg)?;
     let me = api.get_me().await?;
     info!(
@@ -31,6 +36,7 @@ pub async fn run_telegram_polling(
     let bot_id = me.id;
     let bot_username = me.username.clone();
     let stream_ms = tg.stream_edit_interval_ms;
+    let msg_format = tg.format;
 
     let mut offset: i64 = 0;
     loop {
@@ -71,9 +77,10 @@ pub async fn run_telegram_polling(
             let placeholder = api
                 .send_message(
                     inbound.peer.peer.parse().unwrap_or(0),
-                    "…",
+                    &stream_message(initial_activity()),
                     Some(inbound.message_id),
                     thread_id,
+                    TelegramFormat::Plain,
                 )
                 .await?;
 
@@ -89,6 +96,7 @@ pub async fn run_telegram_polling(
                 placeholder.chat.id,
                 placeholder.message_id,
                 stream_ms,
+                msg_format,
             );
 
             let req = NormalizedRequest::telegram(&inbound.text, &agent_group, inbound.peer.clone());
@@ -108,12 +116,13 @@ pub async fn run_telegram_polling(
                                 &resp.text,
                                 None,
                                 thread_id,
+                                msg_format,
                             )
                             .await;
                     }
                 }
                 Err(e) => {
-                    let err = format!("Ошибка: {e}");
+                    let err = format!("Error: {e}");
                     let _ = stream.finalize(&err).await;
                 }
             }
@@ -181,10 +190,16 @@ async fn check_trust(
             };
             let chat_id: i64 = inbound.peer.peer.parse().unwrap_or(0);
             let text = format!(
-                "BobaClaw: нужна привязка.\nКод: `{code}`\nНа сервере: `bobaclaw pairing approve telegram {code}`"
+                "BobaClaw: pairing required.\nCode: `{code}`\nOn the server run: `bobaclaw pairing approve telegram {code}`"
             );
             let _ = api_token
-                .send_message(chat_id, &text, Some(inbound.message_id), None)
+                .send_message(
+                    chat_id,
+                    &text,
+                    Some(inbound.message_id),
+                    None,
+                    TelegramFormat::Plain,
+                )
                 .await;
             false
         }
@@ -207,11 +222,17 @@ async fn handle_pairing_command(
         .await?;
     let chat_id: i64 = inbound.peer.peer.parse().unwrap_or(0);
     let text = format!(
-        "Код привязки BobaClaw: `{code}`\nВыполните на сервере:\n`bobaclaw pairing approve telegram {code}`\n\nDM policy: {:?}",
+        "BobaClaw pairing code: `{code}`\nOn the server run:\n`bobaclaw pairing approve telegram {code}`\n\nDM policy: {:?}",
         config.channels.telegram.dm_policy
     );
-    api.send_message(chat_id, &text, Some(inbound.message_id), None)
-        .await?;
+    api.send_message(
+        chat_id,
+        &text,
+        Some(inbound.message_id),
+        None,
+        TelegramFormat::Plain,
+    )
+    .await?;
     Ok(())
 }
 

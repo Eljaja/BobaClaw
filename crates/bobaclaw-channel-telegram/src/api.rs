@@ -1,4 +1,6 @@
-use bobaclaw_core::TelegramConfig;
+use bobaclaw_core::{TelegramConfig, TelegramFormat};
+
+use crate::format::{format_for_telegram, FormattedMessage, TelegramFormatMode};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
@@ -29,13 +31,21 @@ impl TelegramApi {
     }
 
     async fn call<T: DeserializeOwned>(&self, method: &str, body: &impl Serialize) -> anyhow::Result<T> {
-        let resp = self
-            .client
-            .post(self.url(method))
-            .json(body)
-            .send()
-            .await?
-            .error_for_status()?;
+        let url = self.url(method);
+        let resp = match self.client.post(&url).json(body).send().await {
+            Ok(r) => r,
+            Err(e) => {
+                let mut err = anyhow::anyhow!("telegram {method} request failed: {e}");
+                let hint = hint_proxy_connect_error(&e);
+                if !hint.is_empty() {
+                    err = err.context(hint);
+                }
+                return Err(err);
+            }
+        };
+        let resp = resp.error_for_status().map_err(|e| {
+            anyhow::anyhow!("telegram {method} HTTP error: {e}")
+        })?;
         let envelope: ApiEnvelope<T> = resp.json().await?;
         if !envelope.ok {
             anyhow::bail!(
@@ -81,23 +91,18 @@ impl TelegramApi {
         text: &str,
         reply_to: Option<i64>,
         thread_id: Option<i64>,
+        format: TelegramFormat,
     ) -> anyhow::Result<Message> {
-        #[derive(Serialize)]
-        struct Body {
-            chat_id: i64,
-            text: String,
-            #[serde(skip_serializing_if = "Option::is_none")]
-            reply_to_message_id: Option<i64>,
-            #[serde(skip_serializing_if = "Option::is_none")]
-            message_thread_id: Option<i64>,
+        let msg = format_for_telegram(text, format_mode(format));
+        match self.send_formatted(chat_id, &msg, reply_to, thread_id).await {
+            Ok(m) => Ok(m),
+            Err(e) if format == TelegramFormat::Html && is_telegram_parse_error(&e) => {
+                tracing::debug!("telegram HTML parse failed, retrying plain: {e}");
+                let plain = format_for_telegram(text, TelegramFormatMode::Plain);
+                self.send_formatted(chat_id, &plain, reply_to, thread_id).await
+            }
+            Err(e) => Err(e),
         }
-        let body = Body {
-            chat_id,
-            text: truncate_telegram(text),
-            reply_to_message_id: reply_to,
-            message_thread_id: thread_id,
-        };
-        self.call("sendMessage", &body).await
     }
 
     pub async fn edit_message_text(
@@ -105,17 +110,67 @@ impl TelegramApi {
         chat_id: i64,
         message_id: i64,
         text: &str,
+        format: TelegramFormat,
+    ) -> anyhow::Result<()> {
+        let msg = format_for_telegram(text, format_mode(format));
+        match self.edit_formatted(chat_id, message_id, &msg).await {
+            Ok(()) => Ok(()),
+            Err(e) if format == TelegramFormat::Html && is_telegram_parse_error(&e) => {
+                tracing::debug!("telegram HTML edit parse failed, retrying plain: {e}");
+                let plain = format_for_telegram(text, TelegramFormatMode::Plain);
+                self.edit_formatted(chat_id, message_id, &plain).await
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    pub async fn send_formatted(
+        &self,
+        chat_id: i64,
+        msg: &FormattedMessage,
+        reply_to: Option<i64>,
+        thread_id: Option<i64>,
+    ) -> anyhow::Result<Message> {
+        #[derive(Serialize)]
+        struct Body<'a> {
+            chat_id: i64,
+            text: String,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            parse_mode: Option<&'a str>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            reply_to_message_id: Option<i64>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            message_thread_id: Option<i64>,
+        }
+        let body = Body {
+            chat_id,
+            text: truncate_telegram(&msg.text),
+            parse_mode: msg.parse_mode,
+            reply_to_message_id: reply_to,
+            message_thread_id: thread_id,
+        };
+        self.call("sendMessage", &body).await
+    }
+
+    pub async fn edit_formatted(
+        &self,
+        chat_id: i64,
+        message_id: i64,
+        msg: &FormattedMessage,
     ) -> anyhow::Result<()> {
         #[derive(Serialize)]
-        struct Body {
+        struct Body<'a> {
             chat_id: i64,
             message_id: i64,
             text: String,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            parse_mode: Option<&'a str>,
         }
         let body = Body {
             chat_id,
             message_id,
-            text: truncate_telegram(text),
+            text: truncate_telegram(&msg.text),
+            parse_mode: msg.parse_mode,
         };
         let _: serde_json::Value = self.call("editMessageText", &body).await?;
         Ok(())
@@ -181,6 +236,16 @@ pub struct Update {
     pub edited_message: Option<Message>,
 }
 
+fn hint_proxy_connect_error(err: &reqwest::Error) -> String {
+    if err.is_connect() || err.to_string().contains("tunnel") {
+        "Check channels.telegram.proxy_url (empty = direct). \
+         If the proxy cannot CONNECT to api.telegram.org, clear proxy_url or fix the proxy."
+            .into()
+    } else {
+        String::new()
+    }
+}
+
 fn build_http_client(proxy: Option<&str>) -> anyhow::Result<reqwest::Client> {
     let mut builder = reqwest::Client::builder();
     if let Some(url) = proxy {
@@ -189,6 +254,18 @@ fn build_http_client(proxy: Option<&str>) -> anyhow::Result<reqwest::Client> {
         builder = builder.proxy(proxy);
     }
     Ok(builder.build()?)
+}
+
+fn is_telegram_parse_error(err: &anyhow::Error) -> bool {
+    let s = err.to_string().to_ascii_lowercase();
+    s.contains("parse") || s.contains("entity") || s.contains("can't find end")
+}
+
+fn format_mode(f: TelegramFormat) -> TelegramFormatMode {
+    match f {
+        TelegramFormat::Plain => TelegramFormatMode::Plain,
+        TelegramFormat::Html => TelegramFormatMode::Html,
+    }
 }
 
 pub fn truncate_telegram(text: &str) -> String {

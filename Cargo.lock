@@ -246,6 +246,7 @@ dependencies = [
  "bobaclaw-agent",
  "bobaclaw-core",
  "bobaclaw-state",
+ "pulldown-cmark",
  "reqwest",
  "serde",
  "serde_json",
