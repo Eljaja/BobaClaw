@@ -10,6 +10,8 @@ members = [
     "crates/bobaclaw-gateway",
     "crates/bobaclaw-skills",
     "crates/bobaclaw-skill-forge",
+    "crates/bobaclaw-channel-telegram",
+    "crates/bobaclaw-scheduler",
 ]
 
 [workspace.package]
@@ -41,6 +43,7 @@ regex = "1"
 walkdir = "2"
 tempfile = "3"
 rustyline = "15"
+pulldown-cmark = "0.13"
 
 bobaclaw-core = { path = "crates/bobaclaw-core" }
 bobaclaw-state = { path = "crates/bobaclaw-state" }
@@ -50,3 +53,5 @@ bobaclaw-agent = { path = "crates/bobaclaw-agent" }
 bobaclaw-gateway = { path = "crates/bobaclaw-gateway" }
 bobaclaw-skills = { path = "crates/bobaclaw-skills" }
 bobaclaw-skill-forge = { path = "crates/bobaclaw-skill-forge" }
+bobaclaw-channel-telegram = { path = "crates/bobaclaw-channel-telegram" }
+bobaclaw-scheduler = { path = "crates/bobaclaw-scheduler" }

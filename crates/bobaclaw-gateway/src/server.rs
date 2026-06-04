@@ -4,6 +4,8 @@ use axum::extract::State;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use bobaclaw_agent::AgentLoop;
+use bobaclaw_channel_telegram::run_telegram_polling;
+use bobaclaw_scheduler::spawn_embedded_scheduler;
 use bobaclaw_core::{BobaConfig, BobaPaths, IngressKind, NormalizedRequest};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
@@ -52,6 +54,19 @@ pub async fn serve(paths: BobaPaths, config: BobaConfig) -> anyhow::Result<()> {
         .route("/api/agent", post(api_agent))
         .with_state(state);
 
+    spawn_embedded_scheduler(paths.clone(), config.clone());
+
+    if config.channels.telegram.enabled && config.channels.telegram.polling {
+        let tg_paths = paths.clone();
+        let tg_config = config.clone();
+        tokio::spawn(async move {
+            if let Err(e) = run_telegram_polling(tg_paths, tg_config).await {
+                tracing::error!("telegram channel stopped: {e}");
+            }
+        });
+        tracing::info!("telegram long-poll started");
+    }
+
     let addr = format!("{}:{}", config.gateway.bind, config.gateway.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     tracing::info!("gateway listening on http://{addr}");
@@ -80,6 +95,7 @@ async fn chat_completions(
         ingress: IngressKind::OpenAiCompat,
         agent_group: state.config.default_agent_group.clone(),
         session_id: None,
+        channel_peer: None,
         user_text,
         model_override: body.model,
     };
@@ -124,6 +140,7 @@ async fn api_agent(
             .agent_group
             .unwrap_or_else(|| state.config.default_agent_group.clone()),
         session_id: None,
+        channel_peer: None,
         user_text: body.message,
         model_override: None,
     };
