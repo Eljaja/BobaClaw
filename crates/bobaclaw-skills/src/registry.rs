@@ -98,6 +98,36 @@ fn parse_skill(path: &Path) -> anyhow::Result<SkillEntry> {
     })
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn load_hello_skill_from_examples() {
+        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let ws = manifest.join("../../workspace-examples/home");
+        let reg = SkillRegistry::load(&ws).unwrap();
+        assert!(reg.names().contains(&"hello".to_string()));
+        let skill = reg.get("hello").unwrap();
+        assert!(skill.description.to_lowercase().contains("hello"));
+    }
+
+    #[test]
+    fn match_request_by_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let skill_dir = dir.path().join("skills/demo");
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: demo\ndescription: Demo\n---\n\nBody",
+        )
+        .unwrap();
+        let reg = SkillRegistry::load(dir.path()).unwrap();
+        assert!(reg.match_request("please run demo skill").is_some());
+    }
+}
+
 fn split_frontmatter(raw: &str) -> (&str, &str) {
     if raw.starts_with("---") {
         if let Some(end) = raw[3..].find("\n---") {

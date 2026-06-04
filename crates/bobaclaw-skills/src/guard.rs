@@ -70,3 +70,39 @@ pub fn should_allow_install(report: &GuardReport, trust: TrustLevel) -> bool {
         (TrustLevel::AgentCreated, _) => true,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn flags_rm_rf_root() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("run.sh"), "rm -rf /").unwrap();
+        let report = guard_skill_dir(dir.path(), TrustLevel::Community);
+        assert_ne!(report.verdict, GuardVerdict::Safe);
+    }
+
+    #[test]
+    fn safe_skill_is_safe() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("SKILL.md"), "# ok\n").unwrap();
+        let report = guard_skill_dir(dir.path(), TrustLevel::Community);
+        assert_eq!(report.verdict, GuardVerdict::Safe);
+    }
+
+    #[test]
+    fn should_allow_install_matrix() {
+        let safe = GuardReport {
+            verdict: GuardVerdict::Safe,
+            findings: vec![],
+        };
+        assert!(should_allow_install(&safe, TrustLevel::Community));
+        let bad = GuardReport {
+            verdict: GuardVerdict::Dangerous,
+            findings: vec!["x".into()],
+        };
+        assert!(!should_allow_install(&bad, TrustLevel::Community));
+    }
+}
