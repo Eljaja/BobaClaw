@@ -10,6 +10,12 @@ bobaclaw-executor.workspace = true
 bobaclaw-provider.workspace = true
 bobaclaw-skills.workspace = true
 bobaclaw-state.workspace = true
+chrono.workspace = true
+serde.workspace = true
 serde_json.workspace = true
+sqlx.workspace = true
 tracing.workspace = true
 uuid.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
