@@ -1,0 +1,18 @@
+[package]
+name = "bobaclaw-scheduler"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+bobaclaw-agent.workspace = true
+bobaclaw-channel-telegram.workspace = true
+bobaclaw-core.workspace = true
+bobaclaw-state.workspace = true
+sqlx.workspace = true
+chrono.workspace = true
+cron = "0.15"
+serde.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+uuid.workspace = true
