@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use bobaclaw_agent::{AgentEvent, AgentLoop, AgentResponse};
+use bobaclaw_agent::{format_status_line, AgentEvent, AgentLoop, AgentResponse};
 use bobaclaw_core::NormalizedRequest;
 use tokio::task::JoinHandle;
 
@@ -26,7 +26,7 @@ impl ChatUi {
         agent: &AgentLoop,
         req: NormalizedRequest,
     ) -> anyhow::Result<AgentResponse> {
-        let status = Arc::new(Mutex::new(String::from("запуск…")));
+        let status = Arc::new(Mutex::new(String::from("Starting…")));
         let done = Arc::new(AtomicBool::new(false));
         let spinner = self.spawn_spinner(status.clone(), done.clone());
         let ui = self;
@@ -71,26 +71,7 @@ impl ChatUi {
     }
 
     fn on_progress(&self, status: &Arc<Mutex<String>>, event: AgentEvent) {
-        let line = match &event {
-            AgentEvent::LlmThinking { iteration } => {
-                format!("модель думает · шаг {iteration}")
-            }
-            AgentEvent::ToolStart { name, label } => format!("{name} ▸ {label}"),
-            AgentEvent::ToolEnd {
-                name,
-                exit_code,
-                preview,
-                ..
-            } => {
-                if *exit_code == 0 {
-                    format!("{name} ✓ {preview}")
-                } else {
-                    format!("{name} ✗ exit {exit_code} · {preview}")
-                }
-            }
-            AgentEvent::Compacting { tokens } => format!("сжатие контекста (~{tokens} tok)"),
-            AgentEvent::AssistantChunk { .. } => String::new(),
-        };
+        let line = format_status_line(&event);
         if let Ok(mut s) = status.lock() {
             *s = line;
         }
