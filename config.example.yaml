@@ -8,9 +8,9 @@ provider:
 default_agent_group: home
 
 executor:
-  backend: bubblewrap   # bubblewrap | docker (docker recommended on macOS / when apt setuid fails)
+  backend: bubblewrap   # bubblewrap | docker
   network: true
-  sandbox_packages: true   # bubblewrap: writable apt/pip dirs under workspace/.bobaclaw-sandbox/
+  sandbox_packages: true   # bubblewrap only; Docker installs into the container FS
   docker:
     # Build first: ./scripts/build-sandbox-image.sh  (Ubuntu + Python, amd64/arm64)
     image: bobaclaw/sandbox:latest
@@ -59,23 +59,34 @@ cron:
   #     peer: "123456789"
 
 # External MCP servers. Tools appear as mcp_<server>_<tool> in the agent.
-# Transport: stdio (`command` + `args`) or streamable HTTP (`url`).
+# Transport: stdio (command + args) or HTTP (url — long-lived server).
 mcp_servers:
-  # Obscura headless browser. Install: make install-obscura-mcp (long-lived container + docker exec)
+  # Obscura headless browser (Docker stdio — install: make install-obscura-mcp).
+  # Container stays up for the lifetime of bobaclaw chat/gateway.
   # obscura:
   #   command: docker
   #   args:
-  #     - exec
+  #     - run
+  #     - --rm
   #     - -i
-  #     - bobaclaw-obscura-mcp
-  #     - /obscura
+  #     - --platform
+  #     - linux/amd64          # omit on native amd64 Linux
+  #     - h4ckf0r0day/obscura
   #     - mcp
   #   enabled: true
   #   timeout_secs: 180
   #   connect_timeout_secs: 90
-  # Other MCP servers may use streamable HTTP instead of stdio:
-  #   url: http://127.0.0.1:8080/mcp
-  # filesystem:
+  #   tools_allowlist: []     # empty = all browser_* tools
+  #   tools_denylist: []
+
+  # Obscura HTTP (native binary on host only; not Docker HTTP today):
+  # obscura:
+  #   url: http://127.0.0.1:3000/mcp
+  #   enabled: true
+  #   timeout_secs: 180
+  #   connect_timeout_secs: 60
+
+  # filesystem (stdio subprocess):
   #   command: npx
   #   args:
   #     - -y
@@ -85,7 +96,7 @@ mcp_servers:
   #   enabled: true
   #   timeout_secs: 120
   #   connect_timeout_secs: 60
-  #   tools_allowlist: []   # empty = all tools
+  #   tools_allowlist: []
   #   tools_denylist: []
 
 routing:

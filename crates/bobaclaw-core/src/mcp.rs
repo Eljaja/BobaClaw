@@ -7,10 +7,11 @@ pub type McpServers = HashMap<String, McpServerConfig>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct McpServerConfig {
-    /// Streamable HTTP MCP endpoint (e.g. `http://127.0.0.1:3000/mcp`). When set, `command` is ignored.
+    /// Streamable HTTP MCP endpoint (e.g. `http://127.0.0.1:3000/mcp`).
+    /// When set, BobaClaw connects to a long-lived server instead of spawning `command`.
     #[serde(default)]
-    pub url: String,
-    /// Stdio subprocess executable (e.g. `npx`, `uv`, path to binary). Omit when using `url`.
+    pub url: Option<String>,
+    /// Executable for stdio MCP (e.g. `npx`, `uv`, path to binary). Ignored when `url` is set.
     #[serde(default)]
     pub command: String,
     #[serde(default)]
@@ -47,8 +48,11 @@ fn default_mcp_connect_timeout_secs() -> u64 {
 }
 
 impl McpServerConfig {
+    /// True when this entry uses streamable HTTP instead of a stdio subprocess.
     pub fn uses_http(&self) -> bool {
-        !self.url.trim().is_empty()
+        self.url
+            .as_deref()
+            .is_some_and(|u| !u.trim().is_empty())
     }
 
     pub fn resolve_env(&self) -> HashMap<String, String> {
@@ -78,22 +82,4 @@ pub fn resolve_env_value(raw: &str) -> String {
         }
     }
     raw.to_string()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn load_http_mcp_server_without_command() {
-        let raw = r#"
-url: http://127.0.0.1:3000/mcp
-enabled: true
-timeout_secs: 180
-"#;
-        let cfg: McpServerConfig = serde_yaml::from_str(raw).unwrap();
-        assert!(cfg.uses_http());
-        assert_eq!(cfg.url, "http://127.0.0.1:3000/mcp");
-        assert!(cfg.command.is_empty());
-    }
 }

@@ -234,9 +234,9 @@ async fn cmd_doctor(paths: &BobaPaths, config: &BobaConfig) -> anyhow::Result<()
         "  bubblewrap: found={} user_ns={} — {}",
         bwrap.bwrap_found, bwrap.user_ns_ok, bwrap.message
     );
-    if config.executor.backend == ExecutorBackend::Bubblewrap
-        && config.executor.sandbox_packages
-    {
+    if config.executor.backend == ExecutorBackend::Docker {
+        println!("  exec sandbox: docker container (not bubblewrap)");
+    } else if config.executor.sandbox_packages {
         if let Some(note) = bwrap_apt_advisory(bwrap.user_ns_ok) {
             println!("  bwrap apt: WARNING — {note}");
         } else {

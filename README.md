@@ -20,11 +20,11 @@ export OPENAI_API_KEY=sk-...
 
 Капсула в sandbox: `bobaclaw agent --message "run: echo hello"`.
 
-### Obscura (браузер MCP, опционально)
+### Опционально: браузер Obscura (MCP)
 
 ```bash
-make install-obscura-mcp          # контейнер bobaclaw-obscura-mcp (restart unless-stopped)
-# раскомментируй obscura в ~/.bobaclaw/config.yaml (docker exec — см. config.example.yaml)
+make install-obscura-mcp          # pull образа Obscura + сниппет config
+# раскомментируй obscura в ~/.bobaclaw/config.yaml (Docker stdio, см. config.example.yaml)
 bobaclaw doctor                   # mcp obscura: OK, 12 tool(s)
 ```
 

@@ -114,7 +114,11 @@ pub enum ExecutorBackend {
 }
 
 fn default_executor_backend() -> ExecutorBackend {
-    ExecutorBackend::Bubblewrap
+    if cfg!(target_os = "macos") {
+        ExecutorBackend::Docker
+    } else {
+        ExecutorBackend::Bubblewrap
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

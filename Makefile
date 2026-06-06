@@ -87,12 +87,12 @@ sandbox-image: ## Build bobaclaw/sandbox:latest Docker image
 sandbox-test: ## Smoke-test Docker sandbox isolation
 	./scripts/test-docker-sandbox.sh
 
-# --- Obscura MCP (long-lived browser container) ---
+# --- MCP (Obscura browser) ---
 
-install-obscura-mcp: ## Pull and start Obscura MCP HTTP container (port 3000)
+install-obscura-mcp: ## Pull Obscura image and print Docker stdio MCP config
 	./scripts/install-obscura-mcp.sh
 
-stop-obscura-mcp: ## Stop and remove bobaclaw-obscura-mcp container
+stop-obscura-mcp: ## Remove leftover Obscura MCP containers
 	docker rm -f bobaclaw-obscura-mcp 2>/dev/null || true
 
 # --- integration scripts (require built binary + config) ---

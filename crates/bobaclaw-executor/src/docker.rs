@@ -137,8 +137,6 @@ fn create_container(
         network.to_string(),
         "--cap-drop".to_string(),
         "ALL".to_string(),
-        "--security-opt".to_string(),
-        "no-new-privileges".to_string(),
         "--init".to_string(),
         "-v".to_string(),
         format!("{}:/workspace", workspace_abs.display()),

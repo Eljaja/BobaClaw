@@ -6,6 +6,7 @@ use crate::bwrap::BwrapExecutor;
 use crate::docker::DockerExecutor;
 use crate::profile::ExecutorProfile;
 use crate::run::ExecutionResult;
+use crate::sandbox::{adapt_command_for_sandbox, SandboxCommandMode};
 
 pub struct SandboxExecutor;
 
@@ -18,9 +19,10 @@ impl SandboxExecutor {
         run_dir: &Path,
         command: &str,
     ) -> anyhow::Result<ExecutionResult> {
+        let command = prepare_command(executor, profile, command);
         match executor.backend {
             ExecutorBackend::Bubblewrap => {
-                BwrapExecutor::exec_command(profile, workspace, run_dir, command)
+                BwrapExecutor::exec_command(profile, workspace, run_dir, &command)
             }
             ExecutorBackend::Docker => DockerExecutor::exec_command(
                 executor,
@@ -28,8 +30,24 @@ impl SandboxExecutor {
                 workspace_root,
                 workspace,
                 run_dir,
-                command,
+                &command,
             ),
         }
+    }
+}
+
+fn prepare_command(
+    executor: &ExecutorConfig,
+    profile: &ExecutorProfile,
+    command: &str,
+) -> String {
+    match executor.backend {
+        ExecutorBackend::Docker if executor.network => {
+            adapt_command_for_sandbox(command, SandboxCommandMode::Docker)
+        }
+        ExecutorBackend::Bubblewrap if profile.allow_package_install => {
+            adapt_command_for_sandbox(command, SandboxCommandMode::BwrapPackages)
+        }
+        _ => command.to_string(),
     }
 }

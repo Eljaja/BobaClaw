@@ -6,7 +6,7 @@ use bobaclaw_core::CommandCapsuleManifest;
 use crate::doctor::check_bwrap;
 use crate::profile::{ExecutorProfile, ProfileKind};
 use crate::run::{ExecutionResult, RunArtifacts};
-use crate::sandbox::{adapt_command_for_package_sandbox, append_sandbox_args, prepare_package_dirs};
+use crate::sandbox::{append_sandbox_args, prepare_package_dirs};
 
 pub struct BwrapExecutor;
 
@@ -48,12 +48,7 @@ impl BwrapExecutor {
             "/dev",
         ]);
         append_sandbox_args(&mut cmd, profile, &workspace);
-        let shell_command = if profile.allow_package_install {
-            adapt_command_for_package_sandbox(command)
-        } else {
-            command.to_string()
-        };
-        cmd.args(["--", "/bin/bash", "-lc", &shell_command]);
+        cmd.args(["--", "/bin/bash", "-lc", command]);
 
         let output = cmd.output()?;
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -62,12 +57,12 @@ impl BwrapExecutor {
 
         let manifest = CommandCapsuleManifest {
             language: "bash".into(),
-            argv: vec!["/bin/bash".into(), "-lc".into(), shell_command.clone()],
+            argv: vec!["/bin/bash".into(), "-lc".into(), command.into()],
             executor_profile: profile.id().into(),
             timeout_secs: 120,
             network: profile.allow_network,
         };
-        let artifacts = RunArtifacts::prepare(&run_dir, &shell_command, &manifest)?;
+        let artifacts = RunArtifacts::prepare(&run_dir, command, &manifest)?;
         artifacts.write_result(code, &stdout, &stderr)
     }
 

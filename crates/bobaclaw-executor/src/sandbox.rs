@@ -175,29 +175,59 @@ pub fn append_sandbox_args(cmd: &mut Command, profile: &ExecutorProfile, workspa
     ]);
 }
 
-/// Normalize agent shell commands for the package-enabled bwrap profile.
-pub fn adapt_command_for_package_sandbox(command: &str) -> String {
-    let mut cmd = command.trim().to_string();
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SandboxCommandMode {
+    /// Linux bubblewrap with writable `.bobaclaw-sandbox/` binds.
+    BwrapPackages,
+    /// Long-lived Docker container (`docker exec`); apt needs `APT::Sandbox::User=root`
+    /// because the container is created with `no-new-privileges`.
+    Docker,
+}
+
+/// Normalize agent shell commands before sandbox execution (bwrap or Docker).
+pub fn adapt_command_for_sandbox(command: &str, mode: SandboxCommandMode) -> String {
+    let cmd = strip_leading_sudo(command.trim());
     if cmd.is_empty() {
         return cmd;
     }
 
-    // sudo is never available inside bwrap; strip a leading sudo for package managers.
+    if !invokes_apt(&cmd) {
+        return cmd;
+    }
+
+    match mode {
+        SandboxCommandMode::BwrapPackages => format!(
+            "export APT_CONFIG=/workspace/.bobaclaw-sandbox/bobaclaw-apt.conf; \
+             {cmd}"
+        ),
+        SandboxCommandMode::Docker => format!(
+            "mkdir -p /tmp/bobaclaw-apt/{{archives/partial,lists/partial,state}}; \
+             printf '%s\\n' \
+               'APT::Sandbox::User \"root\";' \
+               'Dir::Cache \"/tmp/bobaclaw-apt\";' \
+               'Dir::State \"/tmp/bobaclaw-apt/state\";' \
+               'Dir::State::lists \"/tmp/bobaclaw-apt/lists\";' \
+               > /tmp/bobaclaw-apt/apt.conf; \
+             export APT_CONFIG=/tmp/bobaclaw-apt/apt.conf; \
+             {cmd}"
+        ),
+    }
+}
+
+/// Back-compat alias for bwrap-only call sites.
+pub fn adapt_command_for_package_sandbox(command: &str) -> String {
+    adapt_command_for_sandbox(command, SandboxCommandMode::BwrapPackages)
+}
+
+fn strip_leading_sudo(command: &str) -> String {
+    let mut cmd = command.to_string();
     for prefix in ["sudo -n ", "sudo "] {
         if cmd.starts_with(prefix) {
             cmd = cmd[prefix.len()..].trim_start().to_string();
             break;
         }
     }
-
-    if invokes_apt(&cmd) {
-        format!(
-            "export APT_CONFIG=/workspace/.bobaclaw-sandbox/bobaclaw-apt.conf; \
-             {cmd}"
-        )
-    } else {
-        cmd
-    }
+    cmd
 }
 
 fn invokes_apt(command: &str) -> bool {
@@ -250,5 +280,14 @@ mod tests {
     fn adapt_leaves_unrelated_commands() {
         let out = adapt_command_for_package_sandbox("curl -fsS example.com");
         assert_eq!(out, "curl -fsS example.com");
+    }
+
+    #[test]
+    fn adapt_docker_injects_tmp_apt_config() {
+        let out = adapt_command_for_sandbox("apt-get install -y jq", SandboxCommandMode::Docker);
+        assert!(out.contains("/tmp/bobaclaw-apt/apt.conf"));
+        assert!(out.contains("APT::Sandbox::User"));
+        assert!(out.contains("Dir::Cache"));
+        assert!(out.contains("apt-get install"));
     }
 }

@@ -176,9 +176,41 @@ impl McpHub {
     ) -> anyhow::Result<Vec<McpToolBinding>> {
         let connect_timeout = Duration::from_secs(cfg.connect_timeout_secs.max(5));
         let client = if cfg.uses_http() {
-            self.connect_http(name, cfg, connect_timeout).await?
+            let url = cfg.url.as_deref().unwrap_or("").trim();
+            let transport = StreamableHttpClientTransport::from_uri(url);
+            tokio::time::timeout(connect_timeout, ().serve(transport))
+                .await
+                .map_err(|_| {
+                    anyhow::anyhow!(
+                        "mcp server '{name}': HTTP connect timed out after {}s (url: {url})",
+                        connect_timeout.as_secs()
+                    )
+                })??
         } else {
-            self.connect_stdio(name, cfg, connect_timeout).await?
+            let command = cfg.command.trim();
+            if command.is_empty() {
+                anyhow::bail!("mcp server '{name}': command is empty (or set url for HTTP MCP)");
+            }
+
+            let mut cmd = Command::new(command);
+            cmd.args(&cfg.args);
+            for (k, v) in cfg.resolve_env() {
+                cmd.env(k, v);
+            }
+            cmd.stdin(std::process::Stdio::null());
+
+            let transport = TokioChildProcess::new(cmd.configure(|c| {
+                c.kill_on_drop(true);
+            }))?;
+
+            tokio::time::timeout(connect_timeout, ().serve(transport))
+                .await
+                .map_err(|_| {
+                    anyhow::anyhow!(
+                        "mcp server '{name}': connect timed out after {}s",
+                        connect_timeout.as_secs()
+                    )
+                })??
         };
 
         let tools = client.list_all_tools().await?;
@@ -193,58 +225,6 @@ impl McpHub {
         );
 
         Ok(bindings)
-    }
-
-    async fn connect_stdio(
-        &self,
-        name: &str,
-        cfg: &McpServerConfig,
-        connect_timeout: Duration,
-    ) -> anyhow::Result<RunningService<RoleClient, ()>> {
-        let command = cfg.command.trim();
-        if command.is_empty() {
-            anyhow::bail!("mcp server '{name}': set `url` or `command`");
-        }
-
-        let mut cmd = Command::new(command);
-        cmd.args(&cfg.args);
-        for (k, v) in cfg.resolve_env() {
-            cmd.env(k, v);
-        }
-        cmd.stdin(std::process::Stdio::null());
-
-        let transport = TokioChildProcess::new(cmd.configure(|c| {
-            c.kill_on_drop(true);
-        }))?;
-
-        tokio::time::timeout(connect_timeout, ().serve(transport))
-            .await
-            .map_err(|_| {
-                anyhow::anyhow!(
-                    "mcp server '{name}': connect timed out after {}s",
-                    connect_timeout.as_secs()
-                )
-            })?
-            .map_err(Into::into)
-    }
-
-    async fn connect_http(
-        &self,
-        name: &str,
-        cfg: &McpServerConfig,
-        connect_timeout: Duration,
-    ) -> anyhow::Result<RunningService<RoleClient, ()>> {
-        let url = cfg.url.trim();
-        let transport = StreamableHttpClientTransport::from_uri(url);
-        tokio::time::timeout(connect_timeout, ().serve(transport))
-            .await
-            .map_err(|_| {
-                anyhow::anyhow!(
-                    "mcp server '{name}': HTTP connect to {url} timed out after {}s",
-                    connect_timeout.as_secs()
-                )
-            })?
-            .map_err(Into::into)
     }
 }
 

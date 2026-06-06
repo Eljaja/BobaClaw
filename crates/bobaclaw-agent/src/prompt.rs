@@ -57,7 +57,8 @@ treat that block as authoritative command output (not user-facing prose).\n\
 - If required context is missing, use `exec` to discover it; ask the user only when tools cannot.\n\
 - Never tell the user to run commands on the host terminal — use `exec`, `schedule`, or MCP tools.\n\
 - `sudo` is unavailable in the sandbox; use `apt-get` / `apt` directly (not `sudo apt`).\n\
-- If `apt` fails with setuid/setgroups errors, set `executor.backend: docker` in config — do not send the user to a host shell.";
+- `exec` runs in the configured sandbox (`executor.backend`: docker container or Linux bubblewrap) — never blame bubblewrap when backend is docker.\n\
+- If `apt` fails with setuid/setgroups errors, retry with `apt-get -o APT::Sandbox::User=root` or check `bobaclaw doctor`; do not send the user to a host shell.";
 
 const SCHEDULING_HINT: &str = "# Scheduling\n\
 Use the `schedule` tool for one-shot delayed work (reminders, \"message me in 5 minutes\", run a prompt later). \
