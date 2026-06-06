@@ -128,6 +128,32 @@ impl<'a> SessionStore<'a> {
         Ok(result.rows_affected())
     }
 
+    /// End the active session for a channel peer and create a fresh routed session.
+    pub async fn reset_routed_session(
+        &self,
+        peer: &ChannelPeer,
+        agent_group: &str,
+        ingress: IngressKind,
+    ) -> anyhow::Result<(u64, String)> {
+        let routes = RouteStore::new(self.pool);
+        let now = Utc::now().timestamp_millis() as f64 / 1000.0;
+        let mut ended = 0u64;
+
+        if let Some(sid) = routes.get_session_id(peer).await? {
+            let result = sqlx::query(
+                "UPDATE sessions SET ended_at = ?1, end_reason = 'channel_new' WHERE id = ?2 AND ended_at IS NULL",
+            )
+            .bind(now)
+            .bind(&sid)
+            .execute(self.pool)
+            .await?;
+            ended = result.rows_affected();
+        }
+
+        let new_id = self.get_or_create_routed(peer, agent_group, ingress).await?;
+        Ok((ended, new_id))
+    }
+
     pub async fn recent_messages(
         &self,
         session_id: &str,
@@ -210,5 +236,30 @@ mod tests {
         assert_eq!(n, 1);
         let sid2 = store.get_or_create_cli("g").await.unwrap();
         assert!(!sid2.is_empty());
+    }
+
+    #[tokio::test]
+    async fn reset_routed_session_creates_fresh_session() {
+        use bobaclaw_core::ChannelPeer;
+
+        let dir = tempfile::tempdir().unwrap();
+        let db = StateDb::open(&dir.path().join("state.db")).await.unwrap();
+        let store = SessionStore::new(db.pool());
+        let peer = ChannelPeer::telegram(42, None);
+        let sid1 = store
+            .get_or_create_routed(&peer, "home", IngressKind::Telegram)
+            .await
+            .unwrap();
+        store.append_message(&sid1, "user", "hello").await.unwrap();
+
+        let (ended, sid2) = store
+            .reset_routed_session(&peer, "home", IngressKind::Telegram)
+            .await
+            .unwrap();
+        assert_eq!(ended, 1);
+        assert_ne!(sid1, sid2);
+
+        let msgs = store.list_messages(&sid2).await.unwrap();
+        assert!(msgs.is_empty());
     }
 }

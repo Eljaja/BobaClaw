@@ -8,6 +8,7 @@ anyhow.workspace = true
 bobaclaw-core.workspace = true
 bobaclaw-executor.workspace = true
 bobaclaw-provider.workspace = true
+bobaclaw-skill-forge.workspace = true
 bobaclaw-skills.workspace = true
 bobaclaw-state.workspace = true
 bobaclaw-mcp.workspace = true
@@ -15,6 +16,7 @@ chrono.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sqlx.workspace = true
+tokio.workspace = true
 tracing.workspace = true
 uuid.workspace = true
 

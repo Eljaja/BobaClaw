@@ -61,50 +61,33 @@ impl TelegramStream {
         self.maybe_edit(false);
     }
 
-    /// Replace the placeholder with the final answer; retry plain and truncated edits before failing.
+    /// Replace the placeholder with the first chunk; overflow goes to follow-up messages.
     pub async fn finalize_with_fallback(&self, final_text: &str) -> anyhow::Result<()> {
-        const TELEGRAM_SAFE: usize = 4000;
-
-        if self
+        match self
             .api
-            .edit_message_text(self.chat_id, self.message_id, final_text, self.format)
-            .await
-            .is_ok()
-        {
-            return Ok(());
-        }
-
-        if final_text.chars().count() > TELEGRAM_SAFE {
-            let truncated = truncate_utf8_prefix(final_text, TELEGRAM_SAFE.saturating_sub(64));
-            let with_note = format!("{truncated}\n\n… (truncated for Telegram)");
-            if self
-                .api
-                .edit_message_text(
-                    self.chat_id,
-                    self.message_id,
-                    &with_note,
-                    TelegramFormat::Plain,
-                )
-                .await
-                .is_ok()
-            {
-                return Ok(());
-            }
-        }
-
-        self.api
-            .edit_message_text(
+            .edit_or_send_long(
                 self.chat_id,
                 self.message_id,
                 final_text,
-                TelegramFormat::Plain,
+                self.format,
             )
             .await
+        {
+            Ok(()) => Ok(()),
+            Err(first) => self
+                .api
+                .edit_or_send_long(
+                    self.chat_id,
+                    self.message_id,
+                    final_text,
+                    TelegramFormat::Plain,
+                )
+                .await
+                .map_err(|second| {
+                    second.context(format!("telegram finalize failed after HTML retry: {first}"))
+                }),
+        }
     }
-}
-
-fn truncate_utf8_prefix(s: &str, max_chars: usize) -> String {
-    s.chars().take(max_chars).collect()
 }
 
 impl AgentProgress for TelegramStream {

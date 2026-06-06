@@ -12,9 +12,10 @@ use crate::compaction::{
 };
 use crate::progress::{emit, AgentProgress};
 use crate::prompt::build_system_prompt;
+use crate::review::build_review_snapshot;
 use crate::tools::{
-    exec_tool_spec, handle_exec_tool, handle_mcp_tool, handle_schedule_tool, is_mcp_tool,
-    schedule_tool_spec,
+    exec_tool_spec, handle_exec_tool, handle_mcp_tool, handle_schedule_tool, handle_skill_tool,
+    is_mcp_tool, is_skill_tool, schedule_tool_spec, skill_tool_specs, SKILL_MANAGE,
 };
 
 const MAX_TOOL_ITERATIONS: usize = 16;
@@ -47,6 +48,10 @@ pub struct TurnOutcome {
     pub session_id: String,
     pub last_run_id: Option<String>,
     pub executed: bool,
+    pub tool_call_count: usize,
+    pub skill_manage_used: bool,
+    /// Truncated conversation for background skill review (excludes system prompt).
+    pub review_snapshot: String,
 }
 
 pub async fn run_agent_turn(
@@ -90,6 +95,7 @@ pub async fn run_agent_turn(
     let client = ToolChatClient::from_provider(&config.provider, api_key)?;
     let tools: Vec<ToolSpec> = {
         let mut t = vec![exec_tool_spec(), schedule_tool_spec()];
+        t.extend(skill_tool_specs());
         if let Some(hub) = mcp {
             t.extend(hub.tool_specs());
         }
@@ -103,6 +109,8 @@ pub async fn run_agent_turn(
     let mut action_retries = 0usize;
     let mut tool_persist: Vec<ToolPersistEntry> = Vec::new();
     let mut hit_iteration_limit = false;
+    let mut tool_call_count = 0usize;
+    let mut skill_manage_used = false;
 
     for iteration in 1..=MAX_TOOL_ITERATIONS {
         emit(
@@ -136,6 +144,10 @@ pub async fn run_agent_turn(
         match tool_calls {
             Some(calls) if !calls.is_empty() => {
                 for call in calls {
+                    tool_call_count += 1;
+                    if call.function.name == SKILL_MANAGE {
+                        skill_manage_used = true;
+                    }
                     let (body, entry) = run_tool_call(
                         paths,
                         config,
@@ -186,7 +198,9 @@ pub async fn run_agent_turn(
         } else {
             SUMMARY_RESPONSE_NUDGE
         };
-        let retry_tools = if requires_action && !executed {
+        let retry_tools = if (requires_action && !executed)
+            || messages.iter().any(|m| m.role == "tool")
+        {
             tools.as_slice()
         } else {
             &[]
@@ -230,6 +244,7 @@ Ask me to continue or narrow the task."
     }
 
     let persisted_assistant = build_persisted_assistant(&final_text, &tool_persist);
+    let review_snapshot = build_review_snapshot(&messages);
 
     Ok(TurnOutcome {
         text: final_text,
@@ -237,6 +252,9 @@ Ask me to continue or narrow the task."
         session_id: session_id.to_string(),
         last_run_id,
         executed,
+        tool_call_count,
+        skill_manage_used,
+        review_snapshot,
     })
 }
 
@@ -280,6 +298,10 @@ async fn run_tool_call(
             *last_run_id = Some(result.run_id);
         }
         (result.body, result.exit_code)
+    } else if is_skill_tool(&name) {
+        let body = handle_skill_tool(paths, &req.agent_group, call)?;
+        *executed = true;
+        (body, 0)
     } else {
         anyhow::bail!("unknown tool: {name}");
     };

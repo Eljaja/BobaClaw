@@ -1,5 +1,8 @@
-use bobaclaw_agent::{force_compact_session, AgentLoop};
+use std::sync::Arc;
+
+use bobaclaw_agent::{force_compact_session, AgentDispatcher};
 use bobaclaw_core::{BobaConfig, BobaPaths, NormalizedRequest};
+use bobaclaw_scheduler::spawn_embedded_scheduler;
 
 use crate::chat_ui::ChatUi;
 use bobaclaw_skills::SkillRegistry;
@@ -15,8 +18,12 @@ pub async fn run_chat(
     let agent_group = group.unwrap_or_else(|| config.default_agent_group.clone());
 
     let state = StateDb::open(&paths.state_db).await?;
-    let agent = match config.resolve_api_key() {
-        Ok(_) => Some(AgentLoop::new(paths.clone(), config.clone()).await?),
+    let dispatcher = match config.resolve_api_key() {
+        Ok(_) => {
+            let shared = Arc::new(AgentDispatcher::new(paths.clone(), config.clone()).await?);
+            spawn_embedded_scheduler(paths.clone(), config.clone(), Some(shared.clone()));
+            Some(shared)
+        }
         Err(e) => {
             eprintln!("LLM: {e}");
             eprintln!(
@@ -79,13 +86,13 @@ pub async fn run_chat(
             continue;
         }
 
-        let Some(agent) = &agent else {
+        let Some(dispatcher) = &dispatcher else {
             println!("Нужен API key для запросов к модели. /doctor — проверка.");
             continue;
         };
 
         let req = NormalizedRequest::cli(line, &agent_group);
-        if let Err(e) = ui.run_agent_turn(agent, req).await {
+        if let Err(e) = ui.run_dispatcher_turn(dispatcher, req).await {
             println!("\n\x1b[31mОшибка агента:\x1b[0m {e:#}\n");
         }
     }
@@ -122,13 +129,18 @@ async fn handle_slash(
             Ok(Some(format!("session={id}")))
         }
         "/skills" => {
-            let reg = SkillRegistry::load(&paths.group_workspace(agent_group))?;
-            if reg.list().is_empty() {
+            let ws = paths.group_workspace(agent_group);
+            let listings = SkillRegistry::list_all(&ws)?;
+            if listings.is_empty() {
                 return Ok(Some("Нет skills в workspace.".into()));
             }
             let mut lines = Vec::new();
-            for s in reg.list() {
-                lines.push(format!("  {} — {}", s.name, s.description));
+            for item in listings {
+                let status = if item.entry.enabled { "on" } else { "off" };
+                lines.push(format!(
+                    "  [{status}] {} — {}",
+                    item.entry.name, item.entry.description
+                ));
             }
             Ok(Some(lines.join("\n")))
         }

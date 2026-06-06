@@ -1,11 +1,11 @@
 use bobaclaw_channel_telegram::{approve_pairing, list_pending_pairing, run_telegram_polling};
-use bobaclaw_scheduler::{run_scheduler_daemon, spawn_embedded_scheduler};
+use bobaclaw_scheduler::run_scheduler_daemon;
 use bobaclaw_core::{BobaConfig, BobaPaths, NormalizedRequest};
 use bobaclaw_core::ExecutorBackend;
 use bobaclaw_executor::{bwrap_apt_advisory, check_bwrap, check_docker, check_docker_sandbox};
 use bobaclaw_gateway::serve;
 use bobaclaw_skill_forge::SkillForge;
-use bobaclaw_skills::{guard_skill_dir, SkillRegistry, TrustLevel};
+use bobaclaw_skills::{guard_skill_dir, SkillRegistry, SkillStateStore, TrustLevel};
 use bobaclaw_state::StateDb;
 use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
@@ -115,8 +115,16 @@ enum GatewayAction {
 
 #[derive(Subcommand)]
 enum SkillsCommand {
+    /// List installed skills with enabled/disabled status
     List,
+    /// Show SKILL.md content
     View { name: String },
+    /// Enable a skill for agent matching
+    Enable { name: String },
+    /// Disable a skill (keeps files on disk)
+    Disable { name: String },
+    /// List staged Skill Forge drafts
+    Drafts,
     Guard { path: String },
     DraftFromRun { run_id: String },
     Promote { draft_id: String },
@@ -139,10 +147,7 @@ async fn main() -> anyhow::Result<()> {
         Commands::Agent { message, group } => {
             cmd_agent(&paths, &config, &message, group).await?
         }
-        Commands::Chat { group } => {
-            spawn_embedded_scheduler(paths.clone(), config.clone());
-            interactive::run_chat(paths, config, group).await?
-        }
+        Commands::Chat { group } => interactive::run_chat(paths, config, group).await?,
         Commands::Gateway { action } => match action {
             GatewayAction::Start => serve(paths, config).await?,
         },
@@ -322,7 +327,7 @@ async fn cmd_channel(
                 if !config.channels.telegram.enabled {
                     anyhow::bail!("enable channels.telegram.enabled in config.yaml");
                 }
-                run_telegram_polling(paths, config).await?;
+                run_telegram_polling(paths, config, None).await?;
             }
         },
     }
@@ -393,8 +398,9 @@ async fn cmd_agent(
 ) -> anyhow::Result<()> {
     let agent_group = group.unwrap_or_else(|| config.default_agent_group.clone());
     let req = NormalizedRequest::cli(message, &agent_group);
-    let agent = bobaclaw_agent::AgentLoop::new(paths.clone(), config.clone()).await?;
-    let resp = agent.handle(req).await?;
+    let dispatcher =
+        bobaclaw_agent::AgentDispatcher::new(paths.clone(), config.clone()).await?;
+    let resp = dispatcher.handle(req).await?;
     let color = std::env::var("NO_COLOR").is_err()
         && std::io::IsTerminal::is_terminal(&std::io::stdout());
     for line in terminal_md::render_markdown_lines(&resp.text, color) {
@@ -415,15 +421,66 @@ async fn cmd_skills(
     let ws = paths.group_workspace(group);
     match command {
         SkillsCommand::List => {
-            let reg = SkillRegistry::load(&ws)?;
-            for s in reg.list() {
-                println!("{} — {}", s.name, s.description);
+            let listings = SkillRegistry::list_all(&ws)?;
+            if listings.is_empty() {
+                println!("(no skills)");
+                return Ok(());
+            }
+            for item in listings {
+                let status = if item.entry.enabled { "on" } else { "off" };
+                let origin = if item.record.agent_created {
+                    "agent"
+                } else {
+                    "manual"
+                };
+                println!(
+                    "[{status}] {} ({origin}) — {}",
+                    item.entry.name, item.entry.description
+                );
             }
         }
         SkillsCommand::View { name } => {
             let reg = SkillRegistry::load(&ws)?;
             let s = reg.get(&name).ok_or_else(|| anyhow::anyhow!("skill not found"))?;
+            let state = SkillStateStore::load(&ws)?;
+            let rec = state.record(&name);
+            let status = if rec.enabled { "enabled" } else { "disabled" };
+            println!("--- status: {status} ---");
             println!("{}", std::fs::read_to_string(&s.path)?);
+        }
+        SkillsCommand::Enable { name } => {
+            SkillRegistry::load(&ws)?
+                .get(&name)
+                .ok_or_else(|| anyhow::anyhow!("skill not found: {name}"))?;
+            let mut state = SkillStateStore::load(&ws)?;
+            state.set_enabled(&name, true)?;
+            println!("enabled: {name}");
+        }
+        SkillsCommand::Disable { name } => {
+            SkillRegistry::load(&ws)?
+                .get(&name)
+                .ok_or_else(|| anyhow::anyhow!("skill not found: {name}"))?;
+            let mut state = SkillStateStore::load(&ws)?;
+            state.set_enabled(&name, false)?;
+            println!("disabled: {name}");
+        }
+        SkillsCommand::Drafts => {
+            let state = StateDb::open(&paths.state_db).await?;
+            let forge = SkillForge::new(paths.clone(), group.clone());
+            let drafts = forge.list_drafts(&state).await?;
+            if drafts.is_empty() {
+                println!("(no staged drafts)");
+                return Ok(());
+            }
+            for d in drafts {
+                println!(
+                    "{}  name={}  status={}  path={}",
+                    d.id,
+                    d.name.as_deref().unwrap_or("-"),
+                    d.status,
+                    d.staging_path
+                );
+            }
         }
         SkillsCommand::Guard { path } => {
             let report = guard_skill_dir(std::path::Path::new(&path), TrustLevel::Community);
@@ -439,8 +496,9 @@ async fn cmd_skills(
             println!("draft_id={draft}");
         }
         SkillsCommand::Promote { draft_id } => {
+            let state = StateDb::open(&paths.state_db).await?;
             let forge = SkillForge::new(paths.clone(), group.clone());
-            let name = forge.promote_draft(&draft_id)?;
+            let name = forge.promote_draft(&state, &draft_id).await?;
             println!("promoted skill: {name}");
         }
     }

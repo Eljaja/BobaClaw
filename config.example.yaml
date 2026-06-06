@@ -19,6 +19,8 @@ executor:
 gateway:
   bind: 127.0.0.1
   port: 18790
+  # Parallel agent turns for different Telegram DMs / sessions (same chat stays serialized).
+  max_parallel_turns: 4
 
 channels:
   telegram:
@@ -62,7 +64,7 @@ cron:
 # Transport: stdio (command + args) or HTTP (url — long-lived server).
 mcp_servers:
   # Obscura headless browser (Docker stdio — install: make install-obscura-mcp).
-  # Container stays up for the lifetime of bobaclaw chat/gateway.
+  # BobaClaw reuses one named container (bobaclaw-mcp-obscura) per process.
   # obscura:
   #   command: docker
   #   args:

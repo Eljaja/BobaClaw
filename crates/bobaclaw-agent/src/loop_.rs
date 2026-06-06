@@ -6,6 +6,7 @@ use bobaclaw_skills::SkillRegistry;
 use bobaclaw_state::{SessionStore, StateDb};
 
 use crate::progress::AgentProgress;
+use crate::review::{maybe_post_turn_skill_save, SkillSaveSource, TurnSkillMetrics};
 use crate::turn::run_agent_turn;
 
 #[derive(Debug, Clone)]
@@ -14,6 +15,8 @@ pub struct AgentResponse {
     pub session_id: String,
     pub run_id: Option<String>,
     pub executed: bool,
+    /// Skill auto-saved after a tool-heavy turn (background review or forge fallback).
+    pub auto_saved_skill: Option<String>,
 }
 
 pub struct AgentLoop {
@@ -28,7 +31,7 @@ impl AgentLoop {
     pub async fn new(paths: BobaPaths, config: BobaConfig) -> anyhow::Result<Self> {
         let state = StateDb::open(&paths.state_db).await?;
         let group = &config.default_agent_group;
-        let skills = SkillRegistry::load(&paths.group_workspace(group))?;
+        let skills = SkillRegistry::load_enabled(&paths.group_workspace(group))?;
         let mcp = Arc::new(McpHub::connect(&config.mcp_servers).await);
         Ok(Self {
             paths,
@@ -58,7 +61,7 @@ impl AgentLoop {
             .await?;
 
         let skills =
-            SkillRegistry::load(&self.paths.group_workspace(&req.agent_group))?;
+            SkillRegistry::load_enabled(&self.paths.group_workspace(&req.agent_group))?;
 
         let outcome = run_agent_turn(
             &self.paths,
@@ -72,15 +75,49 @@ impl AgentLoop {
         )
         .await?;
 
+        let mut reply_text = outcome.text.clone();
+        let auto_saved_skill = maybe_post_turn_skill_save(
+            &self.paths,
+            &self.config,
+            &self.state,
+            &req.agent_group,
+            &TurnSkillMetrics {
+                tool_call_count: outcome.tool_call_count,
+                skill_manage_used: outcome.skill_manage_used,
+            },
+            &outcome.review_snapshot,
+            outcome.last_run_id.as_deref(),
+        )
+        .await
+        .map(|saved| {
+            let note = match saved.source {
+                SkillSaveSource::BackgroundReview => {
+                    format!(
+                        "\n\n💾 Saved skill `{}` for reuse (background review).",
+                        saved.skill_name
+                    )
+                }
+                SkillSaveSource::ForgeAutoPromote => {
+                    format!(
+                        "\n\n💾 Saved skill `{}` for reuse (from successful run).",
+                        saved.skill_name
+                    )
+                }
+            };
+            reply_text.push_str(&note);
+            saved.skill_name
+        });
+
         sessions
             .append_message(&session_id, "assistant", &outcome.persisted_assistant)
             .await?;
 
         Ok(AgentResponse {
-            text: outcome.text,
+            text: reply_text,
             session_id,
             run_id: outcome.last_run_id,
             executed: outcome.executed,
+            auto_saved_skill,
         })
     }
 }

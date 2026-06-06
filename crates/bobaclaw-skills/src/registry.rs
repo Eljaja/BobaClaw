@@ -3,6 +3,8 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use walkdir::WalkDir;
 
+use crate::state::SkillStateStore;
+
 #[derive(Debug, Clone)]
 pub struct SkillEntry {
     pub name: String,
@@ -10,6 +12,13 @@ pub struct SkillEntry {
     pub path: PathBuf,
     pub body: String,
     pub tags: Vec<String>,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct SkillListing {
+    pub entry: SkillEntry,
+    pub record: crate::state::SkillRecord,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -37,23 +46,53 @@ struct BobaclawMeta {
 
 impl SkillRegistry {
     pub fn load(workspace_group: &Path) -> anyhow::Result<Self> {
+        Self::load_filtered(workspace_group, false)
+    }
+
+    /// Load only enabled skills (for agent matching and prompts).
+    pub fn load_enabled(workspace_group: &Path) -> anyhow::Result<Self> {
+        Self::load_filtered(workspace_group, true)
+    }
+
+    fn load_filtered(workspace_group: &Path, enabled_only: bool) -> anyhow::Result<Self> {
         let skills_dir = workspace_group.join("skills");
         if !skills_dir.exists() {
             return Ok(Self::default());
         }
 
+        let state = SkillStateStore::load(workspace_group)?;
         let mut skills = Vec::new();
         for entry in WalkDir::new(&skills_dir)
             .into_iter()
             .filter_map(|e| e.ok())
         {
+            if entry.file_name() == ".skills-state.json" {
+                continue;
+            }
             if entry.file_name() == "SKILL.md" {
-                if let Ok(skill) = parse_skill(entry.path()) {
+                if let Ok(mut skill) = parse_skill(entry.path()) {
+                    skill.enabled = state.is_enabled(&skill.name);
+                    if enabled_only && !skill.enabled {
+                        continue;
+                    }
                     skills.push(skill);
                 }
             }
         }
         Ok(Self { skills })
+    }
+
+    pub fn list_all(workspace_group: &Path) -> anyhow::Result<Vec<SkillListing>> {
+        let reg = Self::load(workspace_group)?;
+        let state = SkillStateStore::load(workspace_group)?;
+        Ok(reg
+            .skills
+            .iter()
+            .map(|e| SkillListing {
+                entry: e.clone(),
+                record: state.record(&e.name),
+            })
+            .collect())
     }
 
     pub fn names(&self) -> Vec<String> {
@@ -95,6 +134,7 @@ fn parse_skill(path: &Path) -> anyhow::Result<SkillEntry> {
         path: path.to_path_buf(),
         body: body.trim().to_string(),
         tags,
+        enabled: true,
     })
 }
 
@@ -111,6 +151,24 @@ mod tests {
         assert!(reg.names().contains(&"hello".to_string()));
         let skill = reg.get("hello").unwrap();
         assert!(skill.description.to_lowercase().contains("hello"));
+    }
+
+    #[test]
+    fn disabled_skill_excluded_from_enabled_load() {
+        let dir = tempfile::tempdir().unwrap();
+        let skill_dir = dir.path().join("skills/demo");
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: demo\ndescription: Demo\n---\n\nBody",
+        )
+        .unwrap();
+        let mut state = SkillStateStore::load(dir.path()).unwrap();
+        state.set_enabled("demo", false).unwrap();
+        let reg = SkillRegistry::load_enabled(dir.path()).unwrap();
+        assert!(reg.get("demo").is_none());
+        let all = SkillRegistry::load(dir.path()).unwrap();
+        assert!(all.get("demo").is_some());
     }
 
     #[test]

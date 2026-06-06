@@ -36,13 +36,6 @@ pub fn parse_message(msg: &Message, bot_id: i64, bot_username: Option<&str>) -> 
     if text.is_empty() && !message_has_attachments(msg) {
         return None;
     }
-    if text.starts_with('/') {
-        let cmd = text.split_whitespace().next().unwrap_or("");
-        if matches!(cmd, "/start" | "/help" | "/pair") {
-            // handled as commands in runtime
-        }
-    }
-
     let user = msg.from.as_ref()?;
     if user.is_bot {
         return None;

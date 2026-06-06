@@ -3,15 +3,14 @@ use std::sync::Arc;
 use axum::extract::State;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use bobaclaw_agent::AgentLoop;
+use bobaclaw_agent::AgentDispatcher;
 use bobaclaw_channel_telegram::run_telegram_polling;
 use bobaclaw_scheduler::spawn_embedded_scheduler;
 use bobaclaw_core::{BobaConfig, BobaPaths, IngressKind, NormalizedRequest};
 use serde::{Deserialize, Serialize};
-use tokio::sync::Mutex;
 
 pub struct GatewayState {
-    pub agent: Mutex<AgentLoop>,
+    pub dispatcher: Arc<AgentDispatcher>,
     pub config: BobaConfig,
 }
 
@@ -42,9 +41,9 @@ pub struct Choice {
 }
 
 pub async fn serve(paths: BobaPaths, config: BobaConfig) -> anyhow::Result<()> {
-    let agent = AgentLoop::new(paths.clone(), config.clone()).await?;
+    let dispatcher = Arc::new(AgentDispatcher::new(paths.clone(), config.clone()).await?);
     let state = Arc::new(GatewayState {
-        agent: Mutex::new(agent),
+        dispatcher: dispatcher.clone(),
         config: config.clone(),
     });
 
@@ -54,13 +53,14 @@ pub async fn serve(paths: BobaPaths, config: BobaConfig) -> anyhow::Result<()> {
         .route("/api/agent", post(api_agent))
         .with_state(state);
 
-    spawn_embedded_scheduler(paths.clone(), config.clone());
+    spawn_embedded_scheduler(paths.clone(), config.clone(), Some(dispatcher.clone()));
 
     if config.channels.telegram.enabled && config.channels.telegram.polling {
         let tg_paths = paths.clone();
         let tg_config = config.clone();
+        let tg_dispatcher = dispatcher.clone();
         tokio::spawn(async move {
-            if let Err(e) = run_telegram_polling(tg_paths, tg_config).await {
+            if let Err(e) = run_telegram_polling(tg_paths, tg_config, Some(tg_dispatcher)).await {
                 tracing::error!("telegram channel stopped: {e}");
             }
         });
@@ -69,7 +69,10 @@ pub async fn serve(paths: BobaPaths, config: BobaConfig) -> anyhow::Result<()> {
 
     let addr = format!("{}:{}", config.gateway.bind, config.gateway.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
-    tracing::info!("gateway listening on http://{addr}");
+    tracing::info!(
+        "gateway listening on http://{addr} (max_parallel_turns={})",
+        config.gateway.max_parallel_turns
+    );
     axum::serve(listener, app).await?;
     Ok(())
 }
@@ -146,8 +149,7 @@ async fn api_agent(
         attachments: Vec::new(),
         model_override: None,
     };
-    let agent = state.agent.lock().await;
-    match agent.handle(req).await {
+    match state.dispatcher.handle(req).await {
         Ok(resp) => Json(ApiAgentResponse {
             reply: resp.text,
             session_id: resp.session_id,
@@ -162,8 +164,7 @@ async fn api_agent(
 }
 
 async fn run_agent(state: Arc<GatewayState>, req: NormalizedRequest) -> String {
-    let agent = state.agent.lock().await;
-    match agent.handle(req).await {
+    match state.dispatcher.handle(req).await {
         Ok(r) => r.text,
         Err(e) => format!("error: {e}"),
     }

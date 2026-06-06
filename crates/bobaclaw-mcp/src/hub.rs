@@ -36,6 +36,16 @@ pub struct McpServerStatus {
 struct McpServerHandle {
     client: Mutex<RunningService<RoleClient, ()>>,
     timeout: Duration,
+    /// Set for Docker stdio MCP; stopped on drop so `/obscura mcp` does not leak.
+    docker_container: Option<String>,
+}
+
+impl Drop for McpServerHandle {
+    fn drop(&mut self) {
+        if let Some(name) = self.docker_container.take() {
+            crate::docker_stdio::stop_mcp_container(&name);
+        }
+    }
 }
 
 /// Connected MCP servers and their tool catalog.
@@ -46,6 +56,8 @@ pub struct McpHub {
 
 impl McpHub {
     pub async fn connect(servers: &McpServers) -> Self {
+        crate::docker_stdio::cleanup_stale_mcp_containers();
+
         let mut hub = Self {
             servers: HashMap::new(),
             bindings: HashMap::new(),
@@ -146,10 +158,11 @@ impl McpHub {
                 .map_err(|e| anyhow::anyhow!("invalid MCP tool arguments: {e}"))?
         };
 
-        let args_obj = args
+        let mut args_obj = args
             .as_object()
             .cloned()
             .unwrap_or_default();
+        normalize_browser_tool_args(&binding.original_name, &mut args_obj);
         let params = CallToolRequestParams::new(binding.original_name.clone()).with_arguments(args_obj);
 
         let timeout = handle.timeout;
@@ -175,25 +188,33 @@ impl McpHub {
         cfg: &McpServerConfig,
     ) -> anyhow::Result<Vec<McpToolBinding>> {
         let connect_timeout = Duration::from_secs(cfg.connect_timeout_secs.max(5));
-        let client = if cfg.uses_http() {
+        let (client, docker_container) = if cfg.uses_http() {
             let url = cfg.url.as_deref().unwrap_or("").trim();
             let transport = StreamableHttpClientTransport::from_uri(url);
-            tokio::time::timeout(connect_timeout, ().serve(transport))
+            let client = tokio::time::timeout(connect_timeout, ().serve(transport))
                 .await
                 .map_err(|_| {
                     anyhow::anyhow!(
                         "mcp server '{name}': HTTP connect timed out after {}s (url: {url})",
                         connect_timeout.as_secs()
                     )
-                })??
+                })??;
+            (client, None)
         } else {
             let command = cfg.command.trim();
             if command.is_empty() {
                 anyhow::bail!("mcp server '{name}': command is empty (or set url for HTTP MCP)");
             }
 
-            let mut cmd = Command::new(command);
-            cmd.args(&cfg.args);
+            let (mut cmd, docker_container) =
+                if let Some(prepared) = crate::docker_stdio::prepare_stdio_command(name, cfg)? {
+                    (prepared.command, Some(prepared.container_name))
+                } else {
+                    let mut cmd = Command::new(command);
+                    cmd.args(&cfg.args);
+                    (cmd, None)
+                };
+
             for (k, v) in cfg.resolve_env() {
                 cmd.env(k, v);
             }
@@ -203,14 +224,25 @@ impl McpHub {
                 c.kill_on_drop(true);
             }))?;
 
-            tokio::time::timeout(connect_timeout, ().serve(transport))
-                .await
-                .map_err(|_| {
-                    anyhow::anyhow!(
+            let client = match tokio::time::timeout(connect_timeout, ().serve(transport)).await {
+                Ok(Ok(client)) => client,
+                Ok(Err(e)) => {
+                    if let Some(ref c) = docker_container {
+                        crate::docker_stdio::stop_mcp_container(c);
+                    }
+                    return Err(e.into());
+                }
+                Err(_) => {
+                    if let Some(ref c) = docker_container {
+                        crate::docker_stdio::stop_mcp_container(c);
+                    }
+                    anyhow::bail!(
                         "mcp server '{name}': connect timed out after {}s",
                         connect_timeout.as_secs()
-                    )
-                })??
+                    );
+                }
+            };
+            (client, docker_container)
         };
 
         let tools = client.list_all_tools().await?;
@@ -221,10 +253,19 @@ impl McpHub {
             Arc::new(McpServerHandle {
                 client: Mutex::new(client),
                 timeout: Duration::from_secs(cfg.timeout_secs.max(5)),
+                docker_container,
             }),
         );
 
         Ok(bindings)
+    }
+}
+
+/// `browser_navigate` defaults to `waitUntil: load`, which never fires on heavy pages
+/// (ya.ru, news sites with endless ads). DOM-ready is enough for snapshot/scrape.
+fn normalize_browser_tool_args(tool: &str, args: &mut serde_json::Map<String, Value>) {
+    if tool == "browser_navigate" && !args.contains_key("waitUntil") {
+        args.insert("waitUntil".into(), json!("domcontentloaded"));
     }
 }
 
@@ -285,4 +326,26 @@ fn register_tools(
     }
 
     Ok(bindings)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn navigate_defaults_to_domcontentloaded() {
+        let mut args = serde_json::Map::new();
+        args.insert("url".into(), json!("https://ya.ru"));
+        normalize_browser_tool_args("browser_navigate", &mut args);
+        assert_eq!(args.get("waitUntil").and_then(|v| v.as_str()), Some("domcontentloaded"));
+    }
+
+    #[test]
+    fn navigate_respects_explicit_wait_until() {
+        let mut args = serde_json::Map::new();
+        args.insert("url".into(), json!("https://ya.ru"));
+        args.insert("waitUntil".into(), json!("load"));
+        normalize_browser_tool_args("browser_navigate", &mut args);
+        assert_eq!(args.get("waitUntil").and_then(|v| v.as_str()), Some("load"));
+    }
 }

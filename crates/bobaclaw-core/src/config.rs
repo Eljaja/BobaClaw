@@ -96,6 +96,13 @@ pub struct GatewayConfig {
     pub bind: String,
     #[serde(default = "default_port")]
     pub port: u16,
+    /// Max concurrent agent turns across different sessions (same session stays serialized).
+    #[serde(default = "default_max_parallel_turns")]
+    pub max_parallel_turns: usize,
+}
+
+fn default_max_parallel_turns() -> usize {
+    4
 }
 
 fn default_bind() -> String {
@@ -185,6 +192,7 @@ impl Default for GatewayConfig {
         Self {
             bind: default_bind(),
             port: default_port(),
+            max_parallel_turns: default_max_parallel_turns(),
         }
     }
 }

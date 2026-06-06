@@ -15,7 +15,9 @@ Headless browser for JS pages, forms, and scraping. Runs on the **host via Docke
 
 - Install image: `make install-obscura-mcp` (pulls `h4ckf0r0day/obscura`; Apple Silicon uses `linux/amd64`)
 - Config: `mcp_servers.obscura` with `command: docker` / `args: [run, --rm, -i, …]` — see `config.example.yaml`
-- Container stays up while `bobaclaw chat` or `gateway` runs; tools are `mcp_obscura_browser_*`
+- One named container (`bobaclaw-mcp-obscura`) per BobaClaw process; tools are `mcp_obscura_browser_*`
+- Cleanup orphans: `make stop-obscura-mcp`
 - Verify: `bobaclaw doctor` → `mcp obscura: OK, 12 tool(s)`
 - Prefer MCP browser tools over `exec` + `curl` when the page needs JavaScript or interaction
+- BobaClaw injects `waitUntil: domcontentloaded` on `browser_navigate` when omitted — `load` never fires on heavy sites (ya.ru) and hangs until MCP timeout
 - Optional HTTP (`url: http://127.0.0.1:3000/mcp`): native Obscura binary on the host (`obscura mcp --http`); Docker HTTP is not usable yet (binds loopback inside the image)

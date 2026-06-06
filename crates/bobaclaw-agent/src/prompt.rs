@@ -67,14 +67,17 @@ Recurring jobs are in `config.yaml` under `cron.jobs`; run `bobaclaw scheduler s
 Do not tell the user you lack a scheduler — use `schedule` or explain cron config.";
 
 const SKILLS_HINT: &str = "# Skills\n\
-When a skill matches the request, follow its SKILL.md. \
-After a non-trivial success, consider capturing the workflow as a skill for reuse.";
+When a skill matches the request, follow its SKILL.md (use skill_view to read one). \
+After a complex task (5+ tool calls), fixing a tricky error, or discovering a non-trivial workflow, \
+save the approach with skill_manage (create or patch). When using a skill and finding it wrong, \
+patch it immediately — do not wait to be asked. List installed skills with skills_list.";
 
 const MCP_HINT: &str = "# MCP tools\n\
 Tools named `mcp_<server>_<tool>` call external MCP servers configured in `config.yaml` (`mcp_servers`). \
 They run on the host and may use network or credentials you configured. \
 Use MCP only through the tool API (JSON-RPC), not by piping shell commands into an MCP process. \
-Prefer MCP when a configured tool fits; use `exec` for workspace shell work.";
+Prefer MCP when a configured tool fits; use `exec` for workspace shell work. \
+For Obscura `browser_navigate`, BobaClaw defaults to `waitUntil: domcontentloaded` (not `load`) so heavy pages do not hang.";
 
 const LANGUAGE_HINT: &str = "# Language\n\
 System instructions are in English. Reply in the same language the user writes in unless they ask otherwise.";
@@ -370,7 +373,7 @@ mod tests {
         assert!(prompt.contains("BOBACLAW.md"));
         assert!(prompt.contains("Use exec"));
         assert!(prompt.contains("# Agent loop"));
-        assert!(!prompt.contains("bubblewrap"));
+        assert!(prompt.contains("skill_manage"));
         assert!(!prompt.contains("AGENTS.md"));
     }
 

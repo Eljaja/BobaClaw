@@ -1,24 +1,29 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use bobaclaw_agent::AgentLoop;
+use bobaclaw_agent::AgentDispatcher;
 use bobaclaw_core::{BobaConfig, BobaPaths, IngressKind, NormalizedRequest};
 use bobaclaw_state::{CronStore, ScheduledTask, ScheduledTaskStore, StateDb};
 use chrono::Utc;
 use cron::Schedule;
 use std::str::FromStr;
-use tokio::sync::Mutex;
 use tracing::{error, info, warn};
 
 use crate::deliver::deliver_message;
 
 /// Background task inside chat/gateway when `scheduler.embedded: true`.
-pub fn spawn_embedded_scheduler(paths: BobaPaths, config: BobaConfig) {
+/// Pass the same dispatcher as chat/gateway so MCP servers (e.g. Obscura Docker) are not
+/// spawned again on every scheduler tick.
+pub fn spawn_embedded_scheduler(
+    paths: BobaPaths,
+    config: BobaConfig,
+    shared_dispatcher: Option<Arc<AgentDispatcher>>,
+) {
     if !config.scheduler.enabled || !config.scheduler.embedded {
         return;
     }
     tokio::spawn(async move {
-        if let Err(e) = run_scheduler_loop(paths, config).await {
+        if let Err(e) = run_scheduler_loop(paths, config, shared_dispatcher).await {
             error!("embedded scheduler exited: {e}");
         }
     });
@@ -52,8 +57,9 @@ pub async fn run_scheduler_daemon(paths: BobaPaths, config: BobaConfig) -> anyho
         pid_path.display()
     );
 
+    let dispatcher = Arc::new(AgentDispatcher::new(paths.clone(), config.clone()).await?);
     let result = tokio::select! {
-        res = run_scheduler_loop(paths, config) => res,
+        res = run_scheduler_loop(paths, config, Some(dispatcher)) => res,
         _ = shutdown_signal() => {
             info!("scheduler daemon shutting down");
             Ok(())
@@ -64,10 +70,23 @@ pub async fn run_scheduler_daemon(paths: BobaPaths, config: BobaConfig) -> anyho
     result
 }
 
-pub async fn run_scheduler_loop(paths: BobaPaths, config: BobaConfig) -> anyhow::Result<()> {
+pub async fn run_scheduler_loop(
+    paths: BobaPaths,
+    config: BobaConfig,
+    shared_dispatcher: Option<Arc<AgentDispatcher>>,
+) -> anyhow::Result<()> {
     if !config.scheduler.enabled {
         return Ok(());
     }
+    let owned_dispatcher = if shared_dispatcher.is_none() {
+        Some(Arc::new(
+            AgentDispatcher::new(paths.clone(), config.clone()).await?,
+        ))
+    } else {
+        None
+    };
+    let dispatcher = shared_dispatcher.or(owned_dispatcher);
+
     let tick = Duration::from_secs(config.scheduler.tick_secs.max(5));
     sync_cron_from_config(&paths, &config).await?;
     info!(
@@ -76,8 +95,10 @@ pub async fn run_scheduler_loop(paths: BobaPaths, config: BobaConfig) -> anyhow:
         config.scheduler.embedded
     );
     loop {
-        if let Err(e) = tick_once(&paths, &config).await {
-            error!("scheduler tick: {e}");
+        if let Some(ref dispatcher) = dispatcher {
+            if let Err(e) = tick_once(&paths, &config, dispatcher).await {
+                error!("scheduler tick: {e}");
+            }
         }
         tokio::time::sleep(tick).await;
     }
@@ -122,13 +143,17 @@ pub async fn sync_cron_from_config(paths: &BobaPaths, config: &BobaConfig) -> an
     Ok(())
 }
 
-async fn tick_once(paths: &BobaPaths, config: &BobaConfig) -> anyhow::Result<()> {
+async fn tick_once(
+    paths: &BobaPaths,
+    config: &BobaConfig,
+    dispatcher: &Arc<AgentDispatcher>,
+) -> anyhow::Result<()> {
     let state = StateDb::open(&paths.state_db).await?;
     let pool = state.pool();
     let now = Utc::now().timestamp_millis() as f64 / 1000.0;
 
-    run_due_scheduled(paths, config, pool, now).await?;
-    run_due_cron(paths, config, pool).await?;
+    run_due_scheduled(paths, config, pool, now, dispatcher).await?;
+    run_due_cron(paths, config, pool, dispatcher).await?;
     Ok(())
 }
 
@@ -137,6 +162,7 @@ async fn run_due_scheduled(
     config: &BobaConfig,
     pool: &sqlx::SqlitePool,
     now: f64,
+    dispatcher: &Arc<AgentDispatcher>,
 ) -> anyhow::Result<()> {
     let store = ScheduledTaskStore::new(pool);
     let due = store.list_due(now).await?;
@@ -144,14 +170,11 @@ async fn run_due_scheduled(
         return Ok(());
     }
 
-    let agent = AgentLoop::new(paths.clone(), config.clone()).await?;
-    let agent = Arc::new(Mutex::new(agent));
-
     for task in due {
         if !store.mark_running(&task.id).await? {
             continue;
         }
-        if let Err(e) = execute_scheduled_task(paths, config, &agent, pool, &task).await {
+        if let Err(e) = execute_scheduled_task(paths, config, dispatcher, pool, &task).await {
             let _ = store.mark_failed(&task.id, &e.to_string()).await;
             error!("scheduled task {} failed: {e}", task.id);
         }
@@ -162,7 +185,7 @@ async fn run_due_scheduled(
 async fn execute_scheduled_task(
     paths: &BobaPaths,
     config: &BobaConfig,
-    agent: &Arc<Mutex<AgentLoop>>,
+    dispatcher: &Arc<AgentDispatcher>,
     pool: &sqlx::SqlitePool,
     task: &ScheduledTask,
 ) -> anyhow::Result<()> {
@@ -177,10 +200,7 @@ async fn execute_scheduled_task(
         model_override: None,
     };
 
-    let resp = {
-        let a = agent.lock().await;
-        a.handle(req).await?
-    };
+    let resp = dispatcher.handle(req).await?;
 
     let text = task
         .deliver_text
@@ -201,6 +221,7 @@ async fn run_due_cron(
     paths: &BobaPaths,
     config: &BobaConfig,
     pool: &sqlx::SqlitePool,
+    dispatcher: &Arc<AgentDispatcher>,
 ) -> anyhow::Result<()> {
     let store = CronStore::new(pool);
     let jobs = store.list_enabled().await?;
@@ -238,7 +259,6 @@ async fn run_due_cron(
         let cfg_job = config.cron.jobs.iter().find(|j| j.id == job.id);
         let deliver = cfg_job.and_then(|j| j.deliver.as_ref());
 
-        let agent = AgentLoop::new(paths.clone(), config.clone()).await?;
         let req = NormalizedRequest {
             request_id: uuid::Uuid::new_v4(),
             ingress: IngressKind::Cron,
@@ -249,7 +269,7 @@ async fn run_due_cron(
             attachments: Vec::new(),
             model_override: None,
         };
-        match agent.handle(req).await {
+        match dispatcher.handle(req).await {
             Ok(resp) => {
                 if let Some(d) = deliver {
                     if let Err(e) = deliver_message(

@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Install Obscura MCP for BobaClaw (Docker image + config snippet).
 #
-# The container is started by BobaClaw on demand and stays up for the lifetime of
-# `bobaclaw chat` / `gateway` (stdio MCP). Image is pulled ahead of time here.
+# BobaClaw manages a single named container (`bobaclaw-mcp-obscura`) for stdio MCP.
+# It stays up for the lifetime of one `bobaclaw chat` / `gateway` process.
+# Image is pulled ahead of time here.
 #
 # Usage:
 #   ./scripts/install-obscura-mcp.sh
@@ -69,7 +70,8 @@ cat <<EOF
 Obscura MCP image is ready.
 
   image: $IMAGE
-  transport: Docker stdio (container lives while bobaclaw chat/gateway runs)
+  transport: Docker stdio (one named container per BobaClaw process)
+  container: bobaclaw-mcp-obscura (managed automatically; stop extras: make stop-obscura-mcp)
 
 Add to ~/.bobaclaw/config.yaml:
 

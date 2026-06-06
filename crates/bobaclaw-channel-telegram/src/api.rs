@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use bobaclaw_core::{TelegramConfig, TelegramFormat};
 
 use crate::format::{format_for_telegram, FormattedMessage, TelegramFormatMode};
+use crate::split::{split_for_telegram, utf16_len, TELEGRAM_MAX_UTF16, TELEGRAM_SPLIT_UTF16};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
@@ -67,6 +68,32 @@ impl TelegramApi {
         self.call("getMe", &Empty {}).await
     }
 
+    pub async fn set_my_commands(&self) -> anyhow::Result<()> {
+        #[derive(Serialize)]
+        struct Cmd {
+            command: &'static str,
+            description: &'static str,
+        }
+        #[derive(Serialize)]
+        struct Body {
+            commands: Vec<Cmd>,
+        }
+        let body = Body {
+            commands: vec![
+                Cmd {
+                    command: "new",
+                    description: "Новая сессия (сброс истории)",
+                },
+                Cmd {
+                    command: "help",
+                    description: "Справка по командам",
+                },
+            ],
+        };
+        let _: bool = self.call("setMyCommands", &body).await?;
+        Ok(())
+    }
+
     pub async fn get_updates(
         &self,
         offset: i64,
@@ -95,6 +122,64 @@ impl TelegramApi {
         thread_id: Option<i64>,
         format: TelegramFormat,
     ) -> anyhow::Result<Message> {
+        let parts = split_for_telegram(text, TELEGRAM_SPLIT_UTF16);
+        let mut last = None;
+        for (i, part) in parts.iter().enumerate() {
+            let reply = if i == 0 { reply_to } else { None };
+            let thread = if i == 0 { thread_id } else { None };
+            last = Some(self.send_message_part(chat_id, part, reply, thread, format).await?);
+        }
+        last.ok_or_else(|| anyhow::anyhow!("telegram sendMessage: empty text"))
+    }
+
+    async fn send_message_part(
+        &self,
+        chat_id: i64,
+        text: &str,
+        reply_to: Option<i64>,
+        thread_id: Option<i64>,
+        format: TelegramFormat,
+    ) -> anyhow::Result<Message> {
+        let msg = format_for_telegram(text, format_mode(format));
+        if utf16_len(&msg.text) <= TELEGRAM_MAX_UTF16 {
+            return self
+                .send_single_formatted(chat_id, text, reply_to, thread_id, format)
+                .await;
+        }
+
+        let subparts = split_for_telegram(text, TELEGRAM_SPLIT_UTF16 / 2);
+        if subparts.len() <= 1 {
+            return self
+                .send_single_formatted(
+                    chat_id,
+                    text,
+                    reply_to,
+                    thread_id,
+                    TelegramFormat::Plain,
+                )
+                .await;
+        }
+
+        let mut last = None;
+        for (i, part) in subparts.iter().enumerate() {
+            let reply = if i == 0 { reply_to } else { None };
+            let thread = if i == 0 { thread_id } else { None };
+            last = Some(
+                self.send_single_formatted(chat_id, part, reply, thread, format)
+                    .await?,
+            );
+        }
+        last.ok_or_else(|| anyhow::anyhow!("telegram sendMessage: empty text"))
+    }
+
+    async fn send_single_formatted(
+        &self,
+        chat_id: i64,
+        text: &str,
+        reply_to: Option<i64>,
+        thread_id: Option<i64>,
+        format: TelegramFormat,
+    ) -> anyhow::Result<Message> {
         let msg = format_for_telegram(text, format_mode(format));
         match self.send_formatted(chat_id, &msg, reply_to, thread_id).await {
             Ok(m) => Ok(m),
@@ -107,7 +192,51 @@ impl TelegramApi {
         }
     }
 
-    pub async fn edit_message_text(
+    /// Replace a placeholder with the first chunk; send the rest as follow-up messages.
+    pub async fn edit_or_send_long(
+        &self,
+        chat_id: i64,
+        message_id: i64,
+        text: &str,
+        format: TelegramFormat,
+    ) -> anyhow::Result<()> {
+        let parts = split_for_telegram(text, TELEGRAM_SPLIT_UTF16);
+        self.edit_message_part(chat_id, message_id, &parts[0], format)
+            .await?;
+        for part in parts.iter().skip(1) {
+            self.send_message_part(chat_id, part, None, None, format)
+                .await?;
+        }
+        Ok(())
+    }
+
+    async fn edit_message_part(
+        &self,
+        chat_id: i64,
+        message_id: i64,
+        text: &str,
+        format: TelegramFormat,
+    ) -> anyhow::Result<()> {
+        let msg = format_for_telegram(text, format_mode(format));
+        if utf16_len(&msg.text) > TELEGRAM_MAX_UTF16 {
+            let subparts = split_for_telegram(text, TELEGRAM_SPLIT_UTF16 / 2);
+            if subparts.len() <= 1 {
+                let plain = format_for_telegram(text, TelegramFormatMode::Plain);
+                return self.edit_formatted(chat_id, message_id, &plain).await;
+            }
+            self.edit_single_formatted(chat_id, message_id, &subparts[0], format)
+                .await?;
+            for part in subparts.iter().skip(1) {
+                self.send_single_formatted(chat_id, part, None, None, format)
+                    .await?;
+            }
+            return Ok(());
+        }
+        self.edit_single_formatted(chat_id, message_id, text, format)
+            .await
+    }
+
+    async fn edit_single_formatted(
         &self,
         chat_id: i64,
         message_id: i64,
@@ -124,6 +253,17 @@ impl TelegramApi {
             }
             Err(e) => Err(e),
         }
+    }
+
+    pub async fn edit_message_text(
+        &self,
+        chat_id: i64,
+        message_id: i64,
+        text: &str,
+        format: TelegramFormat,
+    ) -> anyhow::Result<()> {
+        self.edit_message_part(chat_id, message_id, text, format)
+            .await
     }
 
     pub async fn send_formatted(
@@ -146,7 +286,7 @@ impl TelegramApi {
         }
         let body = Body {
             chat_id,
-            text: truncate_telegram(&msg.text),
+            text: ensure_telegram_limit(&msg.text),
             parse_mode: msg.parse_mode,
             reply_to_message_id: reply_to,
             message_thread_id: thread_id,
@@ -171,7 +311,7 @@ impl TelegramApi {
         let body = Body {
             chat_id,
             message_id,
-            text: truncate_telegram(&msg.text),
+            text: ensure_telegram_limit(&msg.text),
             parse_mode: msg.parse_mode,
         };
         let _: serde_json::Value = self.call("editMessageText", &body).await?;
@@ -390,14 +530,17 @@ fn format_mode(f: TelegramFormat) -> TelegramFormatMode {
     }
 }
 
-pub fn truncate_telegram(text: &str) -> String {
-    const MAX: usize = 4096;
-    if text.len() <= MAX {
+/// Last-resort guard: split instead of silently dropping the tail.
+fn ensure_telegram_limit(text: &str) -> String {
+    if utf16_len(text) <= TELEGRAM_MAX_UTF16 {
         return text.to_string();
     }
-    let mut end = MAX;
-    while end > 0 && !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    format!("{}…", &text[..end])
+    tracing::warn!(
+        "telegram formatted chunk still exceeds limit ({} UTF-16); hard-splitting",
+        utf16_len(text)
+    );
+    split_for_telegram(text, TELEGRAM_MAX_UTF16)
+        .into_iter()
+        .next()
+        .unwrap_or_default()
 }

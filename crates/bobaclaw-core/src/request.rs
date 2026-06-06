@@ -143,6 +143,24 @@ impl NormalizedRequest {
     pub fn format_user_content(&self, workspace: &Path) -> String {
         format_user_content(&self.user_text, &self.attachments, workspace)
     }
+
+    /// Concurrency scope: same key → serialized turns; different keys → may run in parallel.
+    pub fn dispatch_scope(&self) -> String {
+        if let Some(ref sid) = self.session_id {
+            return format!("session:{sid}");
+        }
+        if let Some(ref peer) = self.channel_peer {
+            return format!("peer:{}", peer.route_key());
+        }
+        match self.ingress {
+            IngressKind::Cli => format!("cli:{}", self.agent_group),
+            IngressKind::Cron => format!("cron:{}", self.agent_group),
+            IngressKind::Rest | IngressKind::OpenAiCompat => format!("api:{}", self.agent_group),
+            IngressKind::Chat => format!("chat:{}", self.agent_group),
+            IngressKind::Webhook => format!("webhook:{}", self.agent_group),
+            IngressKind::Telegram => format!("telegram:{}", self.agent_group),
+        }
+    }
 }
 
 /// Merge caption/text with attachment path tags (picoClaw / nullclaw convention).
@@ -168,7 +186,6 @@ pub fn format_user_content(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
 
     #[test]
     fn cli_request_fields() {
@@ -189,6 +206,19 @@ mod tests {
         let out = format_user_content("разбери", std::slice::from_ref(&att), Path::new("/ws"));
         assert!(out.contains("разбери"));
         assert!(out.contains("[file:inbox/telegram/1/2/result.json]"));
+    }
+
+    #[test]
+    fn dispatch_scope_telegram_peer() {
+        let peer = crate::channels::ChannelPeer::telegram(42, None);
+        let r = NormalizedRequest::telegram("hi", "home", peer, vec![]);
+        assert_eq!(r.dispatch_scope(), "peer:telegram:42");
+    }
+
+    #[test]
+    fn dispatch_scope_cli() {
+        let r = NormalizedRequest::cli("hi", "home");
+        assert_eq!(r.dispatch_scope(), "cli:home");
     }
 
     #[test]

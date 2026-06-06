@@ -1,3 +1,3 @@
 mod forge;
 
-pub use forge::SkillForge;
+pub use forge::{SkillDraft, SkillForge};

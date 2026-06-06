@@ -1,15 +1,15 @@
 use std::sync::Arc;
 
-use bobaclaw_agent::AgentLoop;
+use bobaclaw_agent::AgentDispatcher;
 use bobaclaw_core::{
-    evaluate_telegram_trust, resolve_agent_group, BobaConfig, BobaPaths, DmPolicy,
-    NormalizedRequest, TelegramFormat, TrustDecision, TrustInput,
+    evaluate_telegram_trust, resolve_agent_group, BobaConfig, BobaPaths, DmPolicy, IngressKind,
+    NormalizedRequest, TelegramFormat, TrustDecision, TrustInput, WorkspaceAttachment,
 };
-use bobaclaw_state::{PairingStore, StateDb};
-use tokio::sync::Mutex;
+use bobaclaw_state::{PairingStore, SessionStore, StateDb};
 use tracing::{info, warn};
 
 use crate::api::TelegramApi;
+use crate::commands::{parse_slash_command, telegram_help_text};
 use crate::ingress::{message_has_attachments, parse_message, InboundMessage};
 use crate::media::download_message_media;
 use crate::status::{initial_activity, stream_message};
@@ -18,6 +18,7 @@ use crate::stream::TelegramStream;
 pub async fn run_telegram_polling(
     paths: BobaPaths,
     config: BobaConfig,
+    shared_dispatcher: Option<Arc<AgentDispatcher>>,
 ) -> anyhow::Result<()> {
     let tg = &config.channels.telegram;
     match tg.resolve_proxy() {
@@ -30,9 +31,14 @@ pub async fn run_telegram_polling(
         "telegram bot connected: id={} username={:?}",
         me.id, me.username
     );
+    if let Err(e) = api.set_my_commands().await {
+        warn!("telegram setMyCommands: {e}");
+    }
 
-    let agent = AgentLoop::new(paths.clone(), config.clone()).await?;
-    let agent = Arc::new(Mutex::new(agent));
+    let dispatcher = match shared_dispatcher {
+        Some(d) => d,
+        None => Arc::new(AgentDispatcher::new(paths.clone(), config.clone()).await?),
+    };
     let state = StateDb::open(&paths.state_db).await?;
     let bot_id = me.id;
     let bot_username = me.username.clone();
@@ -74,7 +80,28 @@ pub async fn run_telegram_polling(
                 &inbound.peer,
             );
 
-            let attachments = if message_has_attachments(&msg) {
+            if let Some(reply) = handle_slash_command(
+                &state,
+                &inbound,
+                &agent_group,
+                bot_username.as_deref(),
+            )
+            .await?
+            {
+                let chat_id: i64 = inbound.peer.peer.parse().unwrap_or(0);
+                let thread_id = inbound.peer.thread_id.as_ref().and_then(|t| t.parse().ok());
+                api.send_message(
+                    chat_id,
+                    &reply,
+                    Some(inbound.message_id),
+                    thread_id,
+                    msg_format,
+                )
+                .await?;
+                continue;
+            }
+
+            let attachments: Vec<WorkspaceAttachment> = if message_has_attachments(&msg) {
                 download_message_media(&api, &paths, &agent_group, &msg)
                     .await
                     .into_iter()
@@ -84,57 +111,86 @@ pub async fn run_telegram_polling(
                 Vec::new()
             };
 
-            let thread_id = inbound.peer.thread_id.as_ref().and_then(|t| t.parse().ok());
-            let placeholder = api
-                .send_message(
-                    inbound.peer.peer.parse().unwrap_or(0),
-                    &stream_message(initial_activity()),
-                    Some(inbound.message_id),
-                    thread_id,
-                    TelegramFormat::Plain,
+            let dispatcher = dispatcher.clone();
+            let api = api.clone();
+            let inbound = inbound.clone();
+            tokio::spawn(async move {
+                if let Err(e) = run_agent_turn(
+                    &dispatcher,
+                    &api,
+                    &inbound,
+                    &agent_group,
+                    attachments,
+                    stream_ms,
+                    msg_format,
                 )
-                .await?;
-
-            let _ = api
-                .send_chat_action(
-                    inbound.peer.peer.parse().unwrap_or(0),
-                    "typing",
-                )
-                .await;
-
-            let stream = TelegramStream::new(
-                api.clone(),
-                placeholder.chat.id,
-                placeholder.message_id,
-                stream_ms,
-                msg_format,
-            );
-
-            let req = NormalizedRequest::telegram(
-                &inbound.text,
-                &agent_group,
-                inbound.peer.clone(),
-                attachments,
-            );
-            let agent = agent.clone();
-            let result = {
-                let a = agent.lock().await;
-                a.handle_with_progress(req, Some(&stream)).await
-            };
-
-            match result {
-                Ok(resp) => {
-                    if let Err(e) = stream.finalize_with_fallback(&resp.text).await {
-                        warn!("telegram finalize (all retries failed): {e}");
-                    }
+                .await
+                {
+                    warn!("telegram agent turn: {e}");
                 }
-                Err(e) => {
-                    let err = format!("Error: {e}");
-                    let _ = stream.finalize_with_fallback(&err).await;
-                }
-            }
+            });
         }
     }
+}
+
+async fn run_agent_turn(
+    dispatcher: &AgentDispatcher,
+    api: &TelegramApi,
+    inbound: &InboundMessage,
+    agent_group: &str,
+    attachments: Vec<WorkspaceAttachment>,
+    stream_ms: u64,
+    msg_format: TelegramFormat,
+) -> anyhow::Result<()> {
+    let chat_id: i64 = inbound.peer.peer.parse().unwrap_or(0);
+    let thread_id = inbound.peer.thread_id.as_ref().and_then(|t| t.parse().ok());
+
+    let placeholder = api
+        .send_message(
+            chat_id,
+            &stream_message(initial_activity()),
+            Some(inbound.message_id),
+            thread_id,
+            TelegramFormat::Plain,
+        )
+        .await?;
+
+    let _ = api.send_chat_action(chat_id, "typing").await;
+
+    let stream = TelegramStream::new(
+        api.clone(),
+        placeholder.chat.id,
+        placeholder.message_id,
+        stream_ms,
+        msg_format,
+    );
+
+    let req = NormalizedRequest::telegram(
+        &inbound.text,
+        agent_group,
+        inbound.peer.clone(),
+        attachments,
+    );
+
+    match dispatcher.handle_with_progress(req, Some(&stream)).await {
+        Ok(resp) => {
+            if let Err(e) = stream.finalize_with_fallback(&resp.text).await {
+                warn!("telegram finalize (all retries failed): {e}");
+            }
+        }
+        Err(e) => {
+            let err = if e.to_string().contains("Validation of the message failed") {
+                format!(
+                    "Error: LLM-провайдер (ASI Cloud) отклонил формат сообщений: {e}\n\
+                     Попробуйте /new для сброса сессии и отправьте запрос снова."
+                )
+            } else {
+                format!("Error: {e}")
+            };
+            let _ = stream.finalize_with_fallback(&err).await;
+        }
+    }
+    Ok(())
 }
 
 async fn check_trust(
@@ -210,6 +266,34 @@ async fn check_trust(
                 .await;
             false
         }
+    }
+}
+
+async fn handle_slash_command(
+    state: &StateDb,
+    inbound: &InboundMessage,
+    agent_group: &str,
+    bot_username: Option<&str>,
+) -> anyhow::Result<Option<String>> {
+    let Some((cmd, _args)) = parse_slash_command(&inbound.text, bot_username) else {
+        return Ok(None);
+    };
+
+    match cmd {
+        "new" | "clear" | "reset" => {
+            let sessions = SessionStore::new(state.pool());
+            let (ended, session_id) = sessions
+                .reset_routed_session(&inbound.peer, agent_group, IngressKind::Telegram)
+                .await?;
+            let note = if ended > 0 {
+                "История сброшена."
+            } else {
+                "Новая сессия."
+            };
+            Ok(Some(format!("{note}\nsession={session_id}")))
+        }
+        "help" | "h" | "commands" => Ok(Some(telegram_help_text().to_string())),
+        _ => Ok(None),
     }
 }
 

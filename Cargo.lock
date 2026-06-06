@@ -229,6 +229,7 @@ dependencies = [
  "bobaclaw-executor",
  "bobaclaw-mcp",
  "bobaclaw-provider",
+ "bobaclaw-skill-forge",
  "bobaclaw-skills",
  "bobaclaw-state",
  "chrono",
@@ -236,6 +237,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tempfile",
+ "tokio",
  "tracing",
  "uuid",
 ]
@@ -315,6 +317,7 @@ dependencies = [
  "rmcp",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "tracing",
 ]
@@ -365,6 +368,8 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "sqlx",
+ "tempfile",
+ "tokio",
  "uuid",
 ]
 
@@ -373,8 +378,10 @@ name = "bobaclaw-skills"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "regex",
  "serde",
+ "serde_json",
  "serde_yaml",
  "tempfile",
  "walkdir",

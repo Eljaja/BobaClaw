@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use bobaclaw_agent::{
-    format_step_block, ActivityLog, AgentEvent, AgentLoop, AgentResponse,
+    format_step_block, ActivityLog, AgentDispatcher, AgentEvent, AgentLoop, AgentResponse,
 };
 use bobaclaw_core::NormalizedRequest;
 use tokio::task::JoinHandle;
@@ -21,6 +21,34 @@ impl ChatUi {
     pub fn new() -> Self {
         let color = std::env::var("NO_COLOR").is_err() && io::stdout().is_terminal();
         Self { color }
+    }
+
+    pub async fn run_dispatcher_turn(
+        &self,
+        dispatcher: &AgentDispatcher,
+        req: NormalizedRequest,
+    ) -> anyhow::Result<AgentResponse> {
+        let activity = Arc::new(ActivityLog::new());
+        let status = Arc::new(Mutex::new(String::from("Starting…")));
+        let done = Arc::new(AtomicBool::new(false));
+        let spinner = self.spawn_spinner(status.clone(), done.clone());
+        let ui = self;
+        let activity_cb = activity.clone();
+        let progress_cb = move |event: AgentEvent| {
+            ui.on_progress(&status, &activity_cb, event);
+        };
+
+        let result = dispatcher
+            .handle_with_progress(req, Some(&progress_cb))
+            .await;
+
+        done.store(true, Ordering::Relaxed);
+        let _ = spinner.await;
+        clear_line();
+        result.map(|resp| {
+            self.print_response(&resp);
+            resp
+        })
     }
 
     pub async fn run_agent_turn(

@@ -98,6 +98,23 @@ impl ConversationMessage {
     }
 }
 
+/// ASI Cloud (and some OpenAI-compatible gateways) reject requests when `user` or `tool`
+/// messages omit `content` or send JSON `null`. Assistant messages may omit content.
+pub fn normalize_messages_for_provider(messages: &mut [ConversationMessage]) {
+    for msg in messages.iter_mut() {
+        match msg.role.as_str() {
+            "user" | "tool" | "system" => {
+                let text = msg.text_content();
+                msg.content = Some(serde_json::Value::String(text));
+            }
+            "assistant" if matches!(msg.content, Some(serde_json::Value::Null)) => {
+                msg.content = None;
+            }
+            _ => {}
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ChatTurnResult {
     pub message: ConversationMessage,
@@ -170,13 +187,15 @@ impl ToolChatClient {
         let mut last_err: Option<anyhow::Error> = None;
         let mut parsed: Option<Response> = None;
         for attempt in 1..=MAX_CHAT_REQUEST_RETRIES {
+            let mut outbound = messages.to_vec();
+            normalize_messages_for_provider(&mut outbound);
             let send_result = self
                 .client
                 .post(&url)
                 .bearer_auth(&self.api_key)
                 .json(&Request {
                     model,
-                    messages,
+                    messages: &outbound,
                     tools,
                     tool_choice: "auto",
                 })
@@ -220,7 +239,10 @@ impl ToolChatClient {
             } else {
                 let body = resp.text().await.unwrap_or_default();
                 let err = anyhow::anyhow!("provider error {status}: {body}");
-                let retryable = status == StatusCode::TOO_MANY_REQUESTS
+                let validation_422 = status == StatusCode::UNPROCESSABLE_ENTITY
+                    && body.contains("Validation of the message failed");
+                let retryable = validation_422
+                    || status == StatusCode::TOO_MANY_REQUESTS
                     || status == StatusCode::REQUEST_TIMEOUT
                     || status.is_server_error();
                 last_err = Some(err);
@@ -295,5 +317,43 @@ mod tests {
             "sys"
         );
         assert_eq!(ConversationMessage::user("hi").text_content(), "hi");
+    }
+
+    #[test]
+    fn normalize_fills_missing_user_and_tool_content() {
+        let mut msgs = vec![
+            ConversationMessage {
+                role: "user".into(),
+                content: None,
+                tool_calls: None,
+                tool_call_id: None,
+                name: None,
+            },
+            ConversationMessage {
+                role: "tool".into(),
+                content: None,
+                tool_calls: None,
+                tool_call_id: Some("call_1".into()),
+                name: None,
+            },
+            ConversationMessage {
+                role: "assistant".into(),
+                content: None,
+                tool_calls: Some(vec![ToolCall {
+                    id: "call_1".into(),
+                    kind: "function".into(),
+                    function: FunctionCallPayload {
+                        name: "exec".into(),
+                        arguments: "{}".into(),
+                    },
+                }]),
+                tool_call_id: None,
+                name: None,
+            },
+        ];
+        normalize_messages_for_provider(&mut msgs);
+        assert_eq!(msgs[0].content.as_ref().and_then(|v| v.as_str()), Some(""));
+        assert_eq!(msgs[1].content.as_ref().and_then(|v| v.as_str()), Some(""));
+        assert!(msgs[2].content.is_none());
     }
 }

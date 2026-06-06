@@ -93,7 +93,8 @@ install-obscura-mcp: ## Pull Obscura image and print Docker stdio MCP config
 	./scripts/install-obscura-mcp.sh
 
 stop-obscura-mcp: ## Remove leftover Obscura MCP containers
-	docker rm -f bobaclaw-obscura-mcp 2>/dev/null || true
+	docker rm -f bobaclaw-obscura-mcp bobaclaw-mcp-obscura 2>/dev/null || true
+	docker rm -f $$(docker ps -aq --filter ancestor=h4ckf0r0day/obscura) 2>/dev/null || true
 
 # --- integration scripts (require built binary + config) ---
 
