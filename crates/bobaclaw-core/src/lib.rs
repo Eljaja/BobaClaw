@@ -13,7 +13,10 @@ pub use channels::{
     ChannelPeer, ChannelsConfig, DmPolicy, GroupPolicy, RouteMatch, RoutingConfig, RoutingRule,
     TelegramConfig, TelegramFormat,
 };
-pub use config::{BobaConfig, ExecutorConfig, GatewayConfig, ProviderConfig};
+pub use config::{
+    BobaConfig, DockerExecutorConfig, ExecutorBackend, ExecutorConfig, GatewayConfig,
+    ProviderConfig,
+};
 pub use mcp::{McpServerConfig, McpServers};
 pub use scheduler::{CronConfig, CronJobConfig, DeliverTarget, SchedulerConfig};
 pub use context_config::ContextConfig;

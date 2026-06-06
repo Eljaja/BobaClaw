@@ -151,10 +151,21 @@ async fn handle_slash(
                 "  bwrap: found={} user_ns={}\n",
                 b.bwrap_found, b.user_ns_ok
             ));
+            let backend = match config.executor.backend {
+                bobaclaw_core::ExecutorBackend::Bubblewrap => "bubblewrap",
+                bobaclaw_core::ExecutorBackend::Docker => "docker",
+            };
             out.push_str(&format!(
-                "  executor: network={} sandbox_packages={}\n",
+                "  executor: backend={backend} network={} sandbox_packages={}\n",
                 config.executor.network, config.executor.sandbox_packages
             ));
+            if config.executor.backend == bobaclaw_core::ExecutorBackend::Docker {
+                let d = bobaclaw_executor::check_docker_sandbox(&paths.home, &config.executor);
+                out.push_str(&format!(
+                    "  docker: daemon={} container_running={}\n",
+                    d.daemon_ok, d.container_running
+                ));
+            }
             out.push_str(&format!(
                 "  context: window={} reserve={} keep_recent={} compression={}\n",
                 config.context.context_window_tokens,

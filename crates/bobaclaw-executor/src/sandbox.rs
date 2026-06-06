@@ -3,9 +3,34 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+
 use crate::profile::ExecutorProfile;
 
 const SANDBOX_ROOT: &str = ".bobaclaw-sandbox";
+
+/// Injected via `APT_CONFIG` and bound into `/etc/apt/apt.conf.d/` when possible.
+pub const APT_CONF_NAME: &str = "bobaclaw-apt.conf";
+pub const APT_DROPIN_NAME: &str = "99bobaclaw.conf";
+
+const APT_CONF_BODY: &str = r#"# BobaClaw bubblewrap — apt method sandbox uses setegid, which bwrap blocks.
+APT::Sandbox::User "root";
+"#;
+
+const APT_DROPIN_BODY: &str = r#"# BobaClaw — run apt methods as root inside the sandbox.
+APT::Sandbox::User "root";
+"#;
+
+/// Extra dirs apt/dpkg expect under the writable binds.
+const PACKAGE_SUBDIRS: &[&str] = &[
+    "var-cache-apt/archives/partial",
+    "var-lib-apt/lists/partial",
+    "var-lib-apt/lists",
+    "var-lib-dpkg/info",
+    "var-lib-dpkg/updates",
+    "var-log-apt",
+];
 
 /// Host path → guest path for package installs (networked profile only).
 const PACKAGE_BINDS: &[(&str, &str)] = &[
@@ -13,6 +38,7 @@ const PACKAGE_BINDS: &[(&str, &str)] = &[
     ("var-cache-apt", "/var/cache/apt"),
     ("var-lib-apt", "/var/lib/apt"),
     ("var-lib-dpkg", "/var/lib/dpkg"),
+    ("var-log-apt", "/var/log/apt"),
     ("home", "/home/sandbox"),
 ];
 
@@ -40,7 +66,50 @@ pub fn prepare_package_dirs(workspace: &Path) -> std::io::Result<()> {
     for (name, _) in PACKAGE_BINDS {
         std::fs::create_dir_all(root.join(name))?;
     }
+    for sub in PACKAGE_SUBDIRS {
+        std::fs::create_dir_all(root.join(sub))?;
+    }
+    std::fs::write(root.join(APT_CONF_NAME), APT_CONF_BODY)?;
+    std::fs::write(root.join(APT_DROPIN_NAME), APT_DROPIN_BODY)?;
+
+    #[cfg(unix)]
+    {
+        let permissive = std::fs::Permissions::from_mode(0o777);
+        for dir in [
+            root.join("var-cache-apt"),
+            root.join("var-cache-apt/archives"),
+            root.join("var-cache-apt/archives/partial"),
+            root.join("var-lib-apt"),
+            root.join("var-lib-dpkg"),
+            root.join("var-log-apt"),
+        ] {
+            if dir.is_dir() {
+                let _ = std::fs::set_permissions(&dir, permissive.clone());
+            }
+        }
+    }
     Ok(())
+}
+
+/// Whether bubblewrap is likely to run apt/dpkg successfully on this host.
+pub fn bwrap_apt_supported(user_ns_ok: bool) -> bool {
+    user_ns_ok && cfg!(target_os = "linux")
+}
+
+pub fn bwrap_apt_advisory(user_ns_ok: bool) -> Option<&'static str> {
+    if !cfg!(target_os = "linux") {
+        return Some(
+            "apt/dpkg in bubblewrap need Linux; on macOS set executor.backend: docker \
+             (./scripts/build-sandbox-image.sh) for package installs",
+        );
+    }
+    if !user_ns_ok {
+        return Some(
+            "bubblewrap user namespaces unavailable: apt/dpkg will fail (setuid blocked). \
+             Use executor.backend: docker or enable user namespaces on the host",
+        );
+    }
+    None
 }
 
 pub fn append_sandbox_args(cmd: &mut Command, profile: &ExecutorProfile, workspace: &Path) {
@@ -60,6 +129,9 @@ pub fn append_sandbox_args(cmd: &mut Command, profile: &ExecutorProfile, workspa
     let _ = prepare_package_dirs(workspace);
     let root = sandbox_root(workspace);
 
+    // Immediately after --unshare-all (in bwrap.rs): map to root inside the user namespace.
+    cmd.args(["--uid", "0", "--gid", "0"]);
+
     cmd.args(["--proc", "/proc"]);
     cmd.args(["--tmpfs", "/tmp"]);
 
@@ -76,6 +148,24 @@ pub fn append_sandbox_args(cmd: &mut Command, profile: &ExecutorProfile, workspa
         }
     }
 
+    let apt_conf = root.join(APT_CONF_NAME);
+    if apt_conf.exists() {
+        cmd.args([
+            "--setenv",
+            "APT_CONFIG",
+            "/workspace/.bobaclaw-sandbox/bobaclaw-apt.conf",
+        ]);
+    }
+    let apt_dropin = root.join(APT_DROPIN_NAME);
+    if apt_dropin.exists() {
+        let guest = format!("/etc/apt/apt.conf.d/{APT_DROPIN_NAME}");
+        cmd.args([
+            "--bind",
+            apt_dropin.to_str().unwrap(),
+            guest.as_str(),
+        ]);
+    }
+
     cmd.args(["--setenv", "HOME", "/home/sandbox"]);
     cmd.args(["--setenv", "TMPDIR", "/tmp"]);
     cmd.args([
@@ -83,6 +173,38 @@ pub fn append_sandbox_args(cmd: &mut Command, profile: &ExecutorProfile, workspa
         "DEBIAN_FRONTEND",
         "noninteractive",
     ]);
+}
+
+/// Normalize agent shell commands for the package-enabled bwrap profile.
+pub fn adapt_command_for_package_sandbox(command: &str) -> String {
+    let mut cmd = command.trim().to_string();
+    if cmd.is_empty() {
+        return cmd;
+    }
+
+    // sudo is never available inside bwrap; strip a leading sudo for package managers.
+    for prefix in ["sudo -n ", "sudo "] {
+        if cmd.starts_with(prefix) {
+            cmd = cmd[prefix.len()..].trim_start().to_string();
+            break;
+        }
+    }
+
+    if invokes_apt(&cmd) {
+        format!(
+            "export APT_CONFIG=/workspace/.bobaclaw-sandbox/bobaclaw-apt.conf; \
+             {cmd}"
+        )
+    } else {
+        cmd
+    }
+}
+
+fn invokes_apt(command: &str) -> bool {
+    let lower = command.to_lowercase();
+    ["apt-get", "apt ", "apt\n", "apt\t", "dpkg "]
+        .iter()
+        .any(|needle| lower.contains(needle))
 }
 
 #[cfg(test)]
@@ -103,5 +225,30 @@ mod tests {
         let p = ExecutorProfile::from_config(true, true);
         assert!(p.allow_network);
         assert!(p.allow_package_install);
+    }
+
+    #[test]
+    fn prepares_apt_config_and_cache_dirs() {
+        let dir = tempfile::tempdir().unwrap();
+        prepare_package_dirs(dir.path()).unwrap();
+        let root = sandbox_root(dir.path());
+        assert!(root.join(APT_CONF_NAME).is_file());
+        assert!(root.join("var-cache-apt/archives/partial").is_dir());
+        let body = std::fs::read_to_string(root.join(APT_CONF_NAME)).unwrap();
+        assert!(body.contains("APT::Sandbox::User"));
+    }
+
+    #[test]
+    fn adapt_strips_sudo_and_injects_apt_config() {
+        let out = adapt_command_for_package_sandbox("sudo apt-get update");
+        assert!(!out.contains("sudo"));
+        assert!(out.contains("APT_CONFIG"));
+        assert!(out.contains("apt-get update"));
+    }
+
+    #[test]
+    fn adapt_leaves_unrelated_commands() {
+        let out = adapt_command_for_package_sandbox("curl -fsS example.com");
+        assert_eq!(out, "curl -fsS example.com");
     }
 }

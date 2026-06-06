@@ -106,14 +106,55 @@ fn default_port() -> u16 {
     18790
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ExecutorBackend {
+    Bubblewrap,
+    Docker,
+}
+
+fn default_executor_backend() -> ExecutorBackend {
+    ExecutorBackend::Bubblewrap
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DockerExecutorConfig {
+    #[serde(default = "default_docker_image")]
+    pub image: String,
+    #[serde(default = "default_docker_container_name")]
+    pub container_name: String,
+}
+
+fn default_docker_image() -> String {
+    "bobaclaw/sandbox:latest".into()
+}
+
+fn default_docker_container_name() -> String {
+    "bobaclaw-sandbox".into()
+}
+
+impl Default for DockerExecutorConfig {
+    fn default() -> Self {
+        Self {
+            image: default_docker_image(),
+            container_name: default_docker_container_name(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutorConfig {
-    /// bubblewrap `--share-net` for `exec` and capsules (egress to the internet).
+    /// Sandbox backend: bubblewrap (default) or a long-lived Docker container.
+    #[serde(default = "default_executor_backend")]
+    pub backend: ExecutorBackend,
+    /// Network egress for `exec` (bwrap `--share-net` or Docker `--network bridge`).
     #[serde(default = "default_executor_network")]
     pub network: bool,
-    /// Writable `/usr/local`, apt state, and `HOME` under `workspace/.bobaclaw-sandbox/` for pip/apt/cargo installs.
+    /// Writable package paths under `workspace/.bobaclaw-sandbox/` (bubblewrap only).
     #[serde(default = "default_executor_sandbox_packages")]
     pub sandbox_packages: bool,
+    #[serde(default)]
+    pub docker: DockerExecutorConfig,
 }
 
 fn default_executor_network() -> bool {
@@ -127,8 +168,10 @@ fn default_executor_sandbox_packages() -> bool {
 impl Default for ExecutorConfig {
     fn default() -> Self {
         Self {
+            backend: default_executor_backend(),
             network: default_executor_network(),
             sandbox_packages: default_executor_sandbox_packages(),
+            docker: DockerExecutorConfig::default(),
         }
     }
 }
@@ -203,5 +246,24 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("nope.yaml");
         assert!(BobaConfig::load(&path).unwrap().context.compression_enabled);
+    }
+
+    #[test]
+    fn load_executor_docker_backend() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.yaml");
+        std::fs::write(
+            &path,
+            "executor:\n  backend: docker\n  network: false\n  docker:\n    image: alpine:3.20\n",
+        )
+        .unwrap();
+        let loaded = BobaConfig::load(&path).unwrap();
+        assert_eq!(loaded.executor.backend, ExecutorBackend::Docker);
+        assert!(!loaded.executor.network);
+        assert_eq!(loaded.executor.docker.image, "alpine:3.20");
+        assert_eq!(
+            loaded.executor.docker.container_name,
+            "bobaclaw-sandbox"
+        );
     }
 }

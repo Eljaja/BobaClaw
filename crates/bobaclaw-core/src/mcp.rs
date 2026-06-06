@@ -7,7 +7,11 @@ pub type McpServers = HashMap<String, McpServerConfig>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct McpServerConfig {
-    /// Executable (e.g. `npx`, `uv`, path to binary).
+    /// Streamable HTTP MCP endpoint (e.g. `http://127.0.0.1:3000/mcp`). When set, `command` is ignored.
+    #[serde(default)]
+    pub url: String,
+    /// Stdio subprocess executable (e.g. `npx`, `uv`, path to binary). Omit when using `url`.
+    #[serde(default)]
     pub command: String,
     #[serde(default)]
     pub args: Vec<String>,
@@ -43,6 +47,10 @@ fn default_mcp_connect_timeout_secs() -> u64 {
 }
 
 impl McpServerConfig {
+    pub fn uses_http(&self) -> bool {
+        !self.url.trim().is_empty()
+    }
+
     pub fn resolve_env(&self) -> HashMap<String, String> {
         let mut out = HashMap::new();
         for (k, v) in &self.env {
@@ -70,4 +78,22 @@ pub fn resolve_env_value(raw: &str) -> String {
         }
     }
     raw.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn load_http_mcp_server_without_command() {
+        let raw = r#"
+url: http://127.0.0.1:3000/mcp
+enabled: true
+timeout_secs: 180
+"#;
+        let cfg: McpServerConfig = serde_yaml::from_str(raw).unwrap();
+        assert!(cfg.uses_http());
+        assert_eq!(cfg.url, "http://127.0.0.1:3000/mcp");
+        assert!(cfg.command.is_empty());
+    }
 }

@@ -276,7 +276,9 @@ async fn run_tool_call(
         )
         .await?;
         *executed = true;
-        *last_run_id = Some(result.run_id);
+        if !result.run_id.is_empty() {
+            *last_run_id = Some(result.run_id);
+        }
         (result.body, result.exit_code)
     } else {
         anyhow::bail!("unknown tool: {name}");

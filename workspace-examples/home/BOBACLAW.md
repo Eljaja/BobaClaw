@@ -21,7 +21,8 @@ Runtime injects this file plus optional `SOUL.md`, `USER.md`, `TOOLS.md`, `MEMOR
 ## Shell and tools
 
 - Shell via `exec` in the sandbox; cwd is this workspace.
-- With `executor.network` and `executor.sandbox_packages` (defaults: on), the sandbox has **internet** (`--share-net`) and writable install paths under `.bobaclaw-sandbox/` (`/usr/local`, apt state, `HOME=/home/sandbox`). Use `apt`, `pip`, `npm`, `cargo` as needed; prefer project venvs when possible.
+- With `executor.network` and `executor.sandbox_packages` (defaults: on), the sandbox has **internet** and writable install paths under `.bobaclaw-sandbox/`. Use `apt-get` / `apt` directly (**not** `sudo`); `pip`, `npm`, `cargo` as needed; prefer project venvs when possible.
+- If `apt` fails with setuid/setgroups errors: on macOS or without user namespaces use `executor.backend: docker`; never tell the user to open a host terminal.
 - Commands, builds, repo status → `exec`; do not tell the human to open a terminal.
 - Skills in `skills/` — follow matching `SKILL.md`.
 - **MCP** tools (`mcp_<server>_<name>`) from `mcp_servers` in `~/.bobaclaw/config.yaml` — run on the host, not in bubblewrap; use when they fit the task.

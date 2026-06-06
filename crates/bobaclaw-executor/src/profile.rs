@@ -1,3 +1,4 @@
+use bobaclaw_core::ExecutorBackend;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -5,6 +6,8 @@ use serde::{Deserialize, Serialize};
 pub enum ProfileKind {
     BwrapDefault,
     BwrapNetworked,
+    DockerDefault,
+    DockerNetworked,
     Readonly,
     SystemdRun,
     HostDanger,
@@ -43,19 +46,48 @@ impl ExecutorProfile {
     }
 
     pub fn from_config(network: bool, sandbox_packages: bool) -> Self {
-        if network {
-            Self {
-                kind: ProfileKind::BwrapNetworked,
-                allow_network: true,
-                allow_package_install: sandbox_packages,
-                readonly_root: true,
+        Self::from_config_with_backend(ExecutorBackend::Bubblewrap, network, sandbox_packages)
+    }
+
+    pub fn from_config_with_backend(
+        backend: ExecutorBackend,
+        network: bool,
+        sandbox_packages: bool,
+    ) -> Self {
+        match backend {
+            ExecutorBackend::Bubblewrap => {
+                if network {
+                    Self {
+                        kind: ProfileKind::BwrapNetworked,
+                        allow_network: true,
+                        allow_package_install: sandbox_packages,
+                        readonly_root: true,
+                    }
+                } else {
+                    Self {
+                        kind: ProfileKind::BwrapDefault,
+                        allow_network: false,
+                        allow_package_install: false,
+                        readonly_root: true,
+                    }
+                }
             }
-        } else {
-            Self {
-                kind: ProfileKind::BwrapDefault,
-                allow_network: false,
-                allow_package_install: false,
-                readonly_root: true,
+            ExecutorBackend::Docker => {
+                if network {
+                    Self {
+                        kind: ProfileKind::DockerNetworked,
+                        allow_network: true,
+                        allow_package_install: false,
+                        readonly_root: true,
+                    }
+                } else {
+                    Self {
+                        kind: ProfileKind::DockerDefault,
+                        allow_network: false,
+                        allow_package_install: false,
+                        readonly_root: true,
+                    }
+                }
             }
         }
     }
@@ -73,6 +105,8 @@ impl ExecutorProfile {
         match self.kind {
             ProfileKind::BwrapDefault => "bwrap-default",
             ProfileKind::BwrapNetworked => "bwrap-networked",
+            ProfileKind::DockerDefault => "docker-default",
+            ProfileKind::DockerNetworked => "docker-networked",
             ProfileKind::Readonly => "readonly",
             ProfileKind::SystemdRun => "systemd-run",
             ProfileKind::HostDanger => "host-danger",
@@ -105,5 +139,14 @@ mod tests {
         assert!(on.allow_package_install);
         let off = ExecutorProfile::from_config(true, false);
         assert!(!off.allow_package_install);
+    }
+
+    #[test]
+    fn docker_profile_ids() {
+        let net = ExecutorProfile::from_config_with_backend(ExecutorBackend::Docker, true, true);
+        assert_eq!(net.id(), "docker-networked");
+        assert!(!net.allow_package_install);
+        let off = ExecutorProfile::from_config_with_backend(ExecutorBackend::Docker, false, true);
+        assert_eq!(off.id(), "docker-default");
     }
 }

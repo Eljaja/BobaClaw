@@ -1,7 +1,8 @@
 use bobaclaw_channel_telegram::{approve_pairing, list_pending_pairing, run_telegram_polling};
 use bobaclaw_scheduler::{run_scheduler_daemon, spawn_embedded_scheduler};
 use bobaclaw_core::{BobaConfig, BobaPaths, NormalizedRequest};
-use bobaclaw_executor::check_bwrap;
+use bobaclaw_core::ExecutorBackend;
+use bobaclaw_executor::{bwrap_apt_advisory, check_bwrap, check_docker, check_docker_sandbox};
 use bobaclaw_gateway::serve;
 use bobaclaw_skill_forge::SkillForge;
 use bobaclaw_skills::{guard_skill_dir, SkillRegistry, TrustLevel};
@@ -219,8 +220,12 @@ async fn cmd_doctor(paths: &BobaPaths, config: &BobaConfig) -> anyhow::Result<()
         "  llm timeout: {}s",
         config.provider.request_timeout_secs
     );
+    let backend = match config.executor.backend {
+        ExecutorBackend::Bubblewrap => "bubblewrap",
+        ExecutorBackend::Docker => "docker",
+    };
     println!(
-        "  executor: network={} sandbox_packages={} (bwrap --share-net + .bobaclaw-sandbox)",
+        "  executor: backend={backend} network={} sandbox_packages={}",
         config.executor.network, config.executor.sandbox_packages
     );
 
@@ -229,6 +234,36 @@ async fn cmd_doctor(paths: &BobaPaths, config: &BobaConfig) -> anyhow::Result<()
         "  bubblewrap: found={} user_ns={} — {}",
         bwrap.bwrap_found, bwrap.user_ns_ok, bwrap.message
     );
+    if config.executor.backend == ExecutorBackend::Bubblewrap
+        && config.executor.sandbox_packages
+    {
+        if let Some(note) = bwrap_apt_advisory(bwrap.user_ns_ok) {
+            println!("  bwrap apt: WARNING — {note}");
+        } else {
+            println!("  bwrap apt: supported (APT::Sandbox::User=root, writable cache binds)");
+        }
+    }
+
+    if config.executor.backend == ExecutorBackend::Docker {
+        let docker = check_docker_sandbox(&paths.home, &config.executor);
+        println!(
+            "  docker: found={} daemon={} container_running={} — {}",
+            docker.docker_found,
+            docker.daemon_ok,
+            docker.container_running,
+            docker.message
+        );
+        println!(
+            "  docker config: image={} container={}",
+            config.executor.docker.image, config.executor.docker.container_name
+        );
+    } else {
+        let docker = check_docker();
+        println!(
+            "  docker: found={} daemon={} — {}",
+            docker.docker_found, docker.daemon_ok, docker.message
+        );
+    }
 
     let tg = &config.channels.telegram;
     let pid = paths.home.join("scheduler.pid");

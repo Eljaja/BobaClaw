@@ -8,8 +8,13 @@ provider:
 default_agent_group: home
 
 executor:
+  backend: bubblewrap   # bubblewrap | docker (docker recommended on macOS / when apt setuid fails)
   network: true
-  sandbox_packages: true
+  sandbox_packages: true   # bubblewrap: writable apt/pip dirs under workspace/.bobaclaw-sandbox/
+  docker:
+    # Build first: ./scripts/build-sandbox-image.sh  (Ubuntu + Python, amd64/arm64)
+    image: bobaclaw/sandbox:latest
+    container_name: bobaclaw-sandbox
 
 gateway:
   bind: 127.0.0.1
@@ -53,8 +58,23 @@ cron:
   #     channel: telegram
   #     peer: "123456789"
 
-# External MCP servers (stdio). Tools appear as mcp_<server>_<tool> in the agent.
+# External MCP servers. Tools appear as mcp_<server>_<tool> in the agent.
+# Transport: stdio (`command` + `args`) or streamable HTTP (`url`).
 mcp_servers:
+  # Obscura headless browser. Install: make install-obscura-mcp (long-lived container + docker exec)
+  # obscura:
+  #   command: docker
+  #   args:
+  #     - exec
+  #     - -i
+  #     - bobaclaw-obscura-mcp
+  #     - /obscura
+  #     - mcp
+  #   enabled: true
+  #   timeout_secs: 180
+  #   connect_timeout_secs: 90
+  # Other MCP servers may use streamable HTTP instead of stdio:
+  #   url: http://127.0.0.1:8080/mcp
   # filesystem:
   #   command: npx
   #   args:

@@ -1,12 +1,12 @@
 use crate::progress::{emit, sanitize_status_text, AgentEvent, AgentProgress};
 use bobaclaw_core::{head_tail_with_hint, BobaConfig, BobaPaths, CommandCapsuleManifest};
-use bobaclaw_executor::{BwrapExecutor, ExecutorProfile};
+use bobaclaw_executor::{ExecutorProfile, SandboxExecutor};
 use bobaclaw_provider::{FunctionSpec, ToolCall, ToolSpec};
 use bobaclaw_state::RunLedger;
 use serde::Deserialize;
 use serde_json::json;
 use sqlx::SqlitePool;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 const TOOL_NAME: &str = "exec";
@@ -18,7 +18,7 @@ pub fn exec_tool_spec() -> ToolSpec {
         kind: "function".into(),
         function: FunctionSpec {
             name: TOOL_NAME.into(),
-            description: "Run a shell command in the agent workspace (bubblewrap sandbox). \
+            description: "Run a shell command in the agent workspace (sandboxed executor). \
                 Use for file inspection, builds, git, scripts, and system checks. \
                 Call this tool instead of telling the user to run commands. \
                 Only report stdout/stderr/exit_code from this tool's result."
@@ -32,7 +32,8 @@ pub fn exec_tool_spec() -> ToolSpec {
                     },
                     "workdir": {
                         "type": "string",
-                        "description": "Optional path relative to the agent workspace (default: workspace root)."
+                        "description": "Optional subdirectory relative to the workspace (e.g. \"src\"). \
+                            Use \".\" or omit for workspace root — never pass absolute paths like /workspace."
                     }
                 },
                 "required": ["command"]
@@ -68,12 +69,19 @@ pub async fn handle_exec_tool(
         anyhow::bail!("unknown tool: {}", call.function.name);
     }
 
-    let args: ExecArgs = serde_json::from_str(&call.function.arguments)
-        .map_err(|e| anyhow::anyhow!("invalid exec arguments: {e}"))?;
+    let args: ExecArgs = match serde_json::from_str(&call.function.arguments) {
+        Ok(a) => a,
+        Err(e) => {
+            return Ok(validation_error(
+                progress,
+                &format!("invalid exec arguments: {e}"),
+            ));
+        }
+    };
 
     let command = args.command.trim();
     if command.is_empty() {
-        anyhow::bail!("exec: command is empty");
+        return Ok(validation_error(progress, "exec: command is empty"));
     }
 
     let workspace = paths.group_workspace(agent_group);
@@ -86,16 +94,21 @@ pub async fn handle_exec_tool(
         .filter(|s| !s.is_empty())
         .unwrap_or(".");
 
-    let full_command = if workdir == "." {
+    let wd = match normalize_workdir(workdir, &workspace) {
+        Ok(w) => w,
+        Err(e) => return Ok(validation_error(progress, &e.to_string())),
+    };
+
+    let full_command = if wd == "." {
         command.to_string()
     } else {
-        let wd = sanitize_workdir(workdir)?;
         format!("cd {wd} && {command}")
     };
 
     let run_id = format!("run_{}", Uuid::new_v4());
     let run_dir = paths.run_dir(&run_id);
-    let profile = ExecutorProfile::from_config(
+    let profile = ExecutorProfile::from_config_with_backend(
+        config.executor.backend,
         config.executor.network,
         config.executor.sandbox_packages,
     );
@@ -131,7 +144,14 @@ pub async fn handle_exec_tool(
     };
     let _ = manifest;
 
-    let result = BwrapExecutor::exec_command(&profile, &workspace, &run_dir, &full_command);
+    let result = SandboxExecutor::exec_command(
+        &config.executor,
+        &profile,
+        &paths.workspace,
+        &workspace,
+        &run_dir,
+        &full_command,
+    );
 
     match result {
         Ok(exec) => {
@@ -216,17 +236,66 @@ fn truncate_preview(s: &str, max: usize) -> String {
     out
 }
 
-fn sanitize_workdir(workdir: &str) -> anyhow::Result<String> {
-    let p = PathBuf::from(workdir);
-    if p.is_absolute() {
-        anyhow::bail!("workdir must be relative to the workspace");
+fn validation_error(progress: Option<&dyn AgentProgress>, message: &str) -> ExecToolResult {
+    emit(
+        progress,
+        AgentEvent::ToolEnd {
+            name: TOOL_NAME.into(),
+            exit_code: 1,
+            preview: truncate_label(message, 60),
+        },
+    );
+    ExecToolResult {
+        body: format!("exec rejected: {message}"),
+        run_id: String::new(),
+        exit_code: 1,
     }
+}
+
+/// Accept relative paths; normalize common agent mistakes (`/workspace`, host absolute under workspace).
+fn normalize_workdir(workdir: &str, workspace: &Path) -> anyhow::Result<String> {
+    let w = workdir.trim();
+    if w.is_empty() || w == "." {
+        return Ok(".".to_string());
+    }
+
+    if w == "/workspace" || w.starts_with("/workspace/") {
+        let rel = w.strip_prefix("/workspace").unwrap_or(w).trim_start_matches('/');
+        return if rel.is_empty() {
+            Ok(".".to_string())
+        } else {
+            sanitize_relative_workdir(rel)
+        };
+    }
+
+    let p = PathBuf::from(w);
+    if p.is_absolute() {
+        if let (Ok(canon_ws), Ok(canon_p)) = (workspace.canonicalize(), p.canonicalize()) {
+            if let Ok(rel) = canon_p.strip_prefix(&canon_ws) {
+                let rel = rel.to_str().unwrap_or(".").trim_start_matches('/');
+                return if rel.is_empty() {
+                    Ok(".".to_string())
+                } else {
+                    sanitize_relative_workdir(rel)
+                };
+            }
+        }
+        anyhow::bail!(
+            "workdir must be relative to the workspace (got {w:?}); use \".\" for workspace root"
+        );
+    }
+
+    sanitize_relative_workdir(w)
+}
+
+fn sanitize_relative_workdir(workdir: &str) -> anyhow::Result<String> {
+    let p = PathBuf::from(workdir);
     for comp in p.components() {
         use std::path::Component;
         match comp {
             Component::ParentDir => anyhow::bail!("workdir cannot contain .."),
             Component::RootDir | Component::Prefix(_) => {
-                anyhow::bail!("workdir must be relative")
+                anyhow::bail!("workdir must be relative to the workspace")
             }
             _ => {}
         }
@@ -263,12 +332,34 @@ mod tests {
 
     #[test]
     fn sanitize_workdir_rejects_parent() {
-        assert!(sanitize_workdir("../etc").is_err());
+        assert!(sanitize_relative_workdir("../etc").is_err());
     }
 
     #[test]
     fn sanitize_workdir_allows_relative() {
-        assert_eq!(sanitize_workdir("src").unwrap(), "src");
+        assert_eq!(sanitize_relative_workdir("src").unwrap(), "src");
+    }
+
+    #[test]
+    fn normalize_workdir_maps_sandbox_root() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(normalize_workdir("/workspace", dir.path()).unwrap(), ".");
+        assert_eq!(
+            normalize_workdir("/workspace/src", dir.path()).unwrap(),
+            "src"
+        );
+    }
+
+    #[test]
+    fn normalize_workdir_maps_host_absolute() {
+        let dir = tempfile::tempdir().unwrap();
+        let sub = dir.path().join("pkg");
+        std::fs::create_dir_all(&sub).unwrap();
+        let abs = sub.canonicalize().unwrap();
+        assert_eq!(
+            normalize_workdir(abs.to_str().unwrap(), dir.path()).unwrap(),
+            "pkg"
+        );
     }
 
     #[test]
