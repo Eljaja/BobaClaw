@@ -1,4 +1,7 @@
+use std::sync::Arc;
+
 use bobaclaw_core::{BobaConfig, BobaPaths, NormalizedRequest};
+use bobaclaw_mcp::McpHub;
 use bobaclaw_skills::SkillRegistry;
 use bobaclaw_state::{SessionStore, StateDb};
 
@@ -18,6 +21,7 @@ pub struct AgentLoop {
     config: BobaConfig,
     state: StateDb,
     skills: SkillRegistry,
+    mcp: Arc<McpHub>,
 }
 
 impl AgentLoop {
@@ -25,11 +29,13 @@ impl AgentLoop {
         let state = StateDb::open(&paths.state_db).await?;
         let group = &config.default_agent_group;
         let skills = SkillRegistry::load(&paths.group_workspace(group))?;
+        let mcp = Arc::new(McpHub::connect(&config.mcp_servers).await);
         Ok(Self {
             paths,
             config,
             state,
             skills,
+            mcp,
         })
     }
 
@@ -45,8 +51,10 @@ impl AgentLoop {
         let pool = self.state.pool();
         let sessions = SessionStore::new(pool);
         let session_id = sessions.resolve_session(&req).await?;
+        let workspace = self.paths.group_workspace(&req.agent_group);
+        let user_content = req.format_user_content(&workspace);
         sessions
-            .append_message(&session_id, "user", &req.user_text)
+            .append_message(&session_id, "user", &user_content)
             .await?;
 
         let skills =
@@ -57,6 +65,7 @@ impl AgentLoop {
             &self.config,
             pool,
             &skills,
+            Some(&self.mcp),
             &session_id,
             &req,
             progress,
@@ -64,7 +73,7 @@ impl AgentLoop {
         .await?;
 
         sessions
-            .append_message(&session_id, "assistant", &outcome.text)
+            .append_message(&session_id, "assistant", &outcome.persisted_assistant)
             .await?;
 
         Ok(AgentResponse {

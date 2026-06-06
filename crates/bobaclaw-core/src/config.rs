@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::channels::{ChannelsConfig, RoutingConfig};
 use crate::context_config::ContextConfig;
+use crate::mcp::McpServers;
 use crate::scheduler::{CronConfig, SchedulerConfig};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -22,6 +23,8 @@ pub struct BobaConfig {
     pub scheduler: SchedulerConfig,
     #[serde(default)]
     pub cron: CronConfig,
+    #[serde(default, rename = "mcp_servers")]
+    pub mcp_servers: McpServers,
     #[serde(default = "default_agent_group")]
     pub default_agent_group: String,
 }
@@ -41,6 +44,7 @@ impl Default for BobaConfig {
             routing: RoutingConfig::default(),
             scheduler: SchedulerConfig::default(),
             cron: CronConfig::default(),
+            mcp_servers: McpServers::default(),
             default_agent_group: default_agent_group(),
         }
     }

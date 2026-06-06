@@ -1,6 +1,7 @@
 pub mod api;
 pub mod format;
 mod ingress;
+mod media;
 mod runtime;
 mod status;
 mod stream;

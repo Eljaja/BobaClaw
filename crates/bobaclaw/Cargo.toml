@@ -11,6 +11,7 @@ path = "src/main.rs"
 [dependencies]
 anyhow.workspace = true
 bobaclaw-agent.workspace = true
+bobaclaw-mcp.workspace = true
 bobaclaw-core.workspace = true
 bobaclaw-executor.workspace = true
 bobaclaw-gateway.workspace = true

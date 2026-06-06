@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use bobaclaw_core::ProviderConfig;
+use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -101,7 +102,12 @@ impl ConversationMessage {
 pub struct ChatTurnResult {
     pub message: ConversationMessage,
     pub finish_reason: Option<String>,
+    /// Provider reasoning channel; not shown to the user or mixed into `message.content`.
+    pub reasoning: Option<String>,
 }
+
+const MAX_CHAT_REQUEST_RETRIES: u32 = 3;
+const CHAT_RETRY_BACKOFF_MS: u64 = 800;
 
 pub struct ToolChatClient {
     client: reqwest::Client,
@@ -161,45 +167,88 @@ impl ToolChatClient {
             reasoning: Option<String>,
         }
 
-        let resp = self
-            .client
-            .post(&url)
-            .bearer_auth(&self.api_key)
-            .json(&Request {
-                model,
-                messages,
-                tools,
-                tool_choice: "auto",
-            })
-            .send()
-            .await?;
+        let mut last_err: Option<anyhow::Error> = None;
+        let mut parsed: Option<Response> = None;
+        for attempt in 1..=MAX_CHAT_REQUEST_RETRIES {
+            let send_result = self
+                .client
+                .post(&url)
+                .bearer_auth(&self.api_key)
+                .json(&Request {
+                    model,
+                    messages,
+                    tools,
+                    tool_choice: "auto",
+                })
+                .send()
+                .await;
 
-        if !resp.status().is_success() {
+            let resp = match send_result {
+                Ok(r) => r,
+                Err(e) => {
+                    last_err = Some(e.into());
+                    if attempt < MAX_CHAT_REQUEST_RETRIES {
+                        tokio::time::sleep(Duration::from_millis(
+                            CHAT_RETRY_BACKOFF_MS * attempt as u64,
+                        ))
+                        .await;
+                        continue;
+                    }
+                    return Err(last_err.unwrap());
+                }
+            };
+
             let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
-            anyhow::bail!("provider error {status}: {body}");
+            if status.is_success() {
+                match resp.json::<Response>().await {
+                    Ok(p) => {
+                        parsed = Some(p);
+                        break;
+                    }
+                    Err(e) => {
+                        last_err = Some(e.into());
+                        if attempt < MAX_CHAT_REQUEST_RETRIES {
+                            tokio::time::sleep(Duration::from_millis(
+                                CHAT_RETRY_BACKOFF_MS * attempt as u64,
+                            ))
+                            .await;
+                            continue;
+                        }
+                        return Err(last_err.unwrap());
+                    }
+                }
+            } else {
+                let body = resp.text().await.unwrap_or_default();
+                let err = anyhow::anyhow!("provider error {status}: {body}");
+                let retryable = status == StatusCode::TOO_MANY_REQUESTS
+                    || status == StatusCode::REQUEST_TIMEOUT
+                    || status.is_server_error();
+                last_err = Some(err);
+                if retryable && attempt < MAX_CHAT_REQUEST_RETRIES {
+                    tokio::time::sleep(Duration::from_millis(
+                        CHAT_RETRY_BACKOFF_MS * attempt as u64,
+                    ))
+                    .await;
+                    continue;
+                }
+                return Err(last_err.unwrap());
+            }
         }
-
-        let parsed: Response = resp.json().await?;
+        let parsed = parsed.ok_or_else(|| {
+            last_err.unwrap_or_else(|| anyhow::anyhow!("chat request failed after retries"))
+        })?;
         let choice = parsed
             .choices
             .into_iter()
             .next()
             .ok_or_else(|| anyhow::anyhow!("empty choices from provider"))?;
 
-        let mut content = choice.message.content;
-        if content.as_ref().map(content_value_to_string).unwrap_or_default().trim().is_empty() {
-            if let Some(reasoning) = choice.message.reasoning {
-                content = Some(Value::String(reasoning));
-            }
-        }
-
         let message = ConversationMessage {
             role: choice
                 .message
                 .role
                 .unwrap_or_else(|| "assistant".to_string()),
-            content,
+            content: choice.message.content,
             tool_calls: choice.message.tool_calls,
             tool_call_id: None,
             name: None,
@@ -208,6 +257,7 @@ impl ToolChatClient {
         Ok(ChatTurnResult {
             message,
             finish_reason: choice.finish_reason,
+            reasoning: choice.message.reasoning,
         })
     }
 

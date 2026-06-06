@@ -173,6 +173,7 @@ async fn execute_scheduled_task(
         session_id: None,
         channel_peer: None,
         user_text: task.prompt.clone(),
+        attachments: Vec::new(),
         model_override: None,
     };
 
@@ -245,6 +246,7 @@ async fn run_due_cron(
             session_id: None,
             channel_peer: None,
             user_text: job.prompt.clone(),
+            attachments: Vec::new(),
             model_override: None,
         };
         match agent.handle(req).await {

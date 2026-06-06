@@ -97,6 +97,7 @@ async fn chat_completions(
         session_id: None,
         channel_peer: None,
         user_text,
+        attachments: Vec::new(),
         model_override: body.model,
     };
 
@@ -142,6 +143,7 @@ async fn api_agent(
         session_id: None,
         channel_peer: None,
         user_text: body.message,
+        attachments: Vec::new(),
         model_override: None,
     };
     let agent = state.agent.lock().await;

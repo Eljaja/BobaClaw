@@ -1,3 +1,5 @@
+use std::path::{Path, PathBuf};
+
 use bobaclaw_core::{TelegramConfig, TelegramFormat};
 
 use crate::format::{format_for_telegram, FormattedMessage, TelegramFormatMode};
@@ -185,6 +187,82 @@ impl TelegramApi {
         let _: serde_json::Value = self.call("sendChatAction", &Body { chat_id, action }).await?;
         Ok(())
     }
+
+    pub async fn get_file(&self, file_id: &str) -> anyhow::Result<TelegramFile> {
+        #[derive(Serialize)]
+        struct Body<'a> {
+            file_id: &'a str,
+        }
+        self.call("getFile", &Body { file_id }).await
+    }
+
+    pub fn file_download_url(&self, file_path: &str) -> String {
+        format!("{API_BASE}/file/bot{}/{file_path}", self.token)
+    }
+
+    /// Download a Telegram file by `file_id` into `dest`. Returns `dest` on success.
+    pub async fn download_to_path(
+        &self,
+        file_id: &str,
+        dest: &Path,
+        default_ext: &str,
+    ) -> Option<PathBuf> {
+        let info = match self.get_file(file_id).await {
+            Ok(f) => f,
+            Err(e) => {
+                tracing::warn!("telegram getFile({file_id}): {e}");
+                return None;
+            }
+        };
+        let file_path = info.file_path.filter(|p| !p.is_empty())?;
+        let url = self.file_download_url(&file_path);
+
+        let bytes = match self.client.get(&url).send().await {
+            Ok(r) => match r.error_for_status() {
+                Ok(r) => match r.bytes().await {
+                    Ok(b) => b,
+                    Err(e) => {
+                        tracing::warn!("telegram download body: {e}");
+                        return None;
+                    }
+                },
+                Err(e) => {
+                    tracing::warn!("telegram download HTTP: {e}");
+                    return None;
+                }
+            },
+            Err(e) => {
+                tracing::warn!("telegram download request: {e}");
+                return None;
+            }
+        };
+
+        let mut dest_path = dest.to_path_buf();
+        if dest_path.extension().is_none() {
+            if !default_ext.is_empty() {
+                dest_path.set_extension(default_ext.trim_start_matches('.'));
+            } else if let Some(ext) = Path::new(&file_path).extension() {
+                dest_path.set_extension(ext);
+            }
+        }
+        self.write_download(&dest_path, &bytes).await
+    }
+
+    async fn write_download(&self, dest: &Path, bytes: &[u8]) -> Option<PathBuf> {
+        if let Some(parent) = dest.parent() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                tracing::warn!("telegram media mkdir {}: {e}", parent.display());
+                return None;
+            }
+        }
+        match std::fs::write(dest, bytes) {
+            Ok(()) => Some(dest.to_path_buf()),
+            Err(e) => {
+                tracing::warn!("telegram media write {}: {e}", dest.display());
+                None
+            }
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -219,11 +297,55 @@ pub struct MessageEntity {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct PhotoSize {
+    pub file_id: String,
+    pub width: i32,
+    pub height: i32,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Document {
+    pub file_id: String,
+    pub file_name: Option<String>,
+    pub mime_type: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Voice {
+    pub file_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Audio {
+    pub file_id: String,
+    pub file_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Video {
+    pub file_id: String,
+    pub file_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct TelegramFile {
+    pub file_id: String,
+    pub file_path: Option<String>,
+    pub file_size: Option<i64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct Message {
     pub message_id: i64,
     pub chat: Chat,
     pub from: Option<User>,
     pub text: Option<String>,
+    pub caption: Option<String>,
+    pub document: Option<Document>,
+    pub photo: Option<Vec<PhotoSize>>,
+    pub voice: Option<Voice>,
+    pub audio: Option<Audio>,
+    pub video: Option<Video>,
     pub entities: Option<Vec<MessageEntity>>,
     pub reply_to_message: Option<Box<Message>>,
     pub message_thread_id: Option<i64>,

@@ -10,7 +10,8 @@ use tokio::sync::Mutex;
 use tracing::{info, warn};
 
 use crate::api::TelegramApi;
-use crate::ingress::{parse_message, InboundMessage};
+use crate::ingress::{message_has_attachments, parse_message, InboundMessage};
+use crate::media::download_message_media;
 use crate::status::{initial_activity, stream_message};
 use crate::stream::TelegramStream;
 
@@ -73,6 +74,16 @@ pub async fn run_telegram_polling(
                 &inbound.peer,
             );
 
+            let attachments = if message_has_attachments(&msg) {
+                download_message_media(&api, &paths, &agent_group, &msg)
+                    .await
+                    .into_iter()
+                    .map(Into::into)
+                    .collect()
+            } else {
+                Vec::new()
+            };
+
             let thread_id = inbound.peer.thread_id.as_ref().and_then(|t| t.parse().ok());
             let placeholder = api
                 .send_message(
@@ -99,7 +110,12 @@ pub async fn run_telegram_polling(
                 msg_format,
             );
 
-            let req = NormalizedRequest::telegram(&inbound.text, &agent_group, inbound.peer.clone());
+            let req = NormalizedRequest::telegram(
+                &inbound.text,
+                &agent_group,
+                inbound.peer.clone(),
+                attachments,
+            );
             let agent = agent.clone();
             let result = {
                 let a = agent.lock().await;
@@ -108,22 +124,13 @@ pub async fn run_telegram_polling(
 
             match result {
                 Ok(resp) => {
-                    if let Err(e) = stream.finalize(&resp.text).await {
-                        warn!("telegram finalize: {e}");
-                        let _ = api
-                            .send_message(
-                                placeholder.chat.id,
-                                &resp.text,
-                                None,
-                                thread_id,
-                                msg_format,
-                            )
-                            .await;
+                    if let Err(e) = stream.finalize_with_fallback(&resp.text).await {
+                        warn!("telegram finalize (all retries failed): {e}");
                     }
                 }
                 Err(e) => {
                     let err = format!("Error: {e}");
-                    let _ = stream.finalize(&err).await;
+                    let _ = stream.finalize_with_fallback(&err).await;
                 }
             }
         }

@@ -134,7 +134,7 @@ async fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Commands::Init => cmd_init(&paths, &config)?,
-        Commands::Doctor => cmd_doctor(&paths, &config)?,
+        Commands::Doctor => cmd_doctor(&paths, &config).await?,
         Commands::Agent { message, group } => {
             cmd_agent(&paths, &config, &message, group).await?
         }
@@ -200,7 +200,7 @@ fn copy_tree(src: &std::path::Path, dst: &std::path::Path) -> anyhow::Result<()>
     Ok(())
 }
 
-fn cmd_doctor(paths: &BobaPaths, config: &BobaConfig) -> anyhow::Result<()> {
+async fn cmd_doctor(paths: &BobaPaths, config: &BobaConfig) -> anyhow::Result<()> {
     println!("BobaClaw doctor");
     println!("  home: {}", paths.home.display());
     println!("  config: {} ({})", paths.config.display(), paths.config.exists());
@@ -255,6 +255,23 @@ fn cmd_doctor(paths: &BobaPaths, config: &BobaConfig) -> anyhow::Result<()> {
     match tg.resolve_proxy() {
         Some(url) => println!("  telegram proxy: {url}"),
         None => println!("  telegram proxy: (direct)"),
+    }
+
+    if config.mcp_servers.is_empty() {
+        println!("  mcp: none configured (add mcp_servers in config.yaml)");
+    } else {
+        let hub = bobaclaw_mcp::McpHub::connect(&config.mcp_servers).await;
+        for st in hub.statuses(&config.mcp_servers) {
+            if st.connected {
+                println!(
+                    "  mcp {}: OK, {} tool(s)",
+                    st.name, st.tool_count
+                );
+            } else {
+                let err = st.error.unwrap_or_else(|| "connect failed".into());
+                println!("  mcp {}: FAIL — {err}", st.name);
+            }
+        }
     }
     Ok(())
 }

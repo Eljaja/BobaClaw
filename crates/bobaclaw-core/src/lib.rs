@@ -1,5 +1,6 @@
 pub mod channels;
 pub mod config;
+pub mod mcp;
 pub mod scheduler;
 pub mod context_config;
 pub mod paths;
@@ -13,10 +14,13 @@ pub use channels::{
     TelegramConfig, TelegramFormat,
 };
 pub use config::{BobaConfig, ExecutorConfig, GatewayConfig, ProviderConfig};
+pub use mcp::{McpServerConfig, McpServers};
 pub use scheduler::{CronConfig, CronJobConfig, DeliverTarget, SchedulerConfig};
 pub use context_config::ContextConfig;
 pub use paths::BobaPaths;
 pub use policy::{evaluate_telegram_trust, resolve_agent_group, ChatKind, TrustDecision, TrustInput};
-pub use request::{IngressKind, NormalizedRequest};
+pub use request::{
+    format_user_content, AttachmentKind, IngressKind, NormalizedRequest, WorkspaceAttachment,
+};
 pub use run::{CommandCapsuleManifest, RunEventKind, RunStatus};
 pub use truncate::head_tail_with_hint;

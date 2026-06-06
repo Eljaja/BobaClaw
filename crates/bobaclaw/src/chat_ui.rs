@@ -3,7 +3,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use bobaclaw_agent::{format_status_line, AgentEvent, AgentLoop, AgentResponse};
+use bobaclaw_agent::{
+    format_step_block, ActivityLog, AgentEvent, AgentLoop, AgentResponse,
+};
 use bobaclaw_core::NormalizedRequest;
 use tokio::task::JoinHandle;
 
@@ -26,13 +28,19 @@ impl ChatUi {
         agent: &AgentLoop,
         req: NormalizedRequest,
     ) -> anyhow::Result<AgentResponse> {
+        let activity = Arc::new(ActivityLog::new());
         let status = Arc::new(Mutex::new(String::from("Starting…")));
         let done = Arc::new(AtomicBool::new(false));
         let spinner = self.spawn_spinner(status.clone(), done.clone());
         let ui = self;
-        let progress_cb = |event: AgentEvent| ui.on_progress(&status, event);
+        let activity_cb = activity.clone();
+        let progress_cb = move |event: AgentEvent| {
+            ui.on_progress(&status, &activity_cb, event);
+        };
 
-        let result = agent.handle_with_progress(req, Some(&progress_cb)).await;
+        let result = agent
+            .handle_with_progress(req, Some(&progress_cb))
+            .await;
 
         done.store(true, Ordering::Relaxed);
         let _ = spinner.await;
@@ -70,23 +78,39 @@ impl ChatUi {
         })
     }
 
-    fn on_progress(&self, status: &Arc<Mutex<String>>, event: AgentEvent) {
-        let line = format_status_line(&event);
+    fn on_progress(
+        &self,
+        status: &Arc<Mutex<String>>,
+        activity: &ActivityLog,
+        event: AgentEvent,
+    ) {
+        activity.push_event(&event);
         if let Ok(mut s) = status.lock() {
-            *s = line;
+            *s = activity.spinner_line();
         }
+
+        let block = format_step_block(&event);
+        if block.is_empty() {
+            return;
+        }
+
         if self.color {
-            let accent = match event {
+            let accent = match &event {
                 AgentEvent::LlmThinking { .. } => "\x1b[35m",
                 AgentEvent::ToolStart { .. } => "\x1b[33m",
-                AgentEvent::ToolEnd { exit_code, .. } if exit_code == 0 => "\x1b[32m",
+                AgentEvent::ToolEnd { exit_code, .. } if *exit_code == 0 => "\x1b[32m",
                 AgentEvent::ToolEnd { .. } => "\x1b[31m",
                 AgentEvent::Compacting { .. } => "\x1b[34m",
                 AgentEvent::AssistantChunk { .. } => "\x1b[36m",
+                AgentEvent::EmptyResponseRetry { .. } => "\x1b[35m",
             };
-            eprintln!("{accent}  │ {event}\x1b[0m");
+            for line in block.lines() {
+                eprintln!("{accent}  │ {line}\x1b[0m");
+            }
         } else {
-            eprintln!("  | {event}");
+            for line in block.lines() {
+                eprintln!("  | {line}");
+            }
         }
     }
 

@@ -16,9 +16,24 @@ pub struct InboundMessage {
     pub is_reply_to_bot: bool,
 }
 
+pub fn message_has_attachments(msg: &Message) -> bool {
+    msg.document.is_some()
+        || msg.photo.as_ref().is_some_and(|p| !p.is_empty())
+        || msg.voice.is_some()
+        || msg.audio.is_some()
+        || msg.video.is_some()
+}
+
 pub fn parse_message(msg: &Message, bot_id: i64, bot_username: Option<&str>) -> Option<InboundMessage> {
-    let text = msg.text.as_deref()?.trim();
-    if text.is_empty() {
+    let text = msg
+        .text
+        .as_deref()
+        .or(msg.caption.as_deref())
+        .map(str::trim)
+        .unwrap_or("")
+        .to_string();
+
+    if text.is_empty() && !message_has_attachments(msg) {
         return None;
     }
     if text.starts_with('/') {
@@ -59,7 +74,7 @@ pub fn parse_message(msg: &Message, bot_id: i64, bot_username: Option<&str>) -> 
         user_name: user.username.clone().or_else(|| {
             msg.chat.title.clone()
         }),
-        text: text.to_string(),
+        text,
         message_id: msg.message_id,
         reply_to_message_id: msg
             .reply_to_message
@@ -74,7 +89,11 @@ fn message_mentions_bot(msg: &Message, bot_id: i64, bot_username: Option<&str>) 
     let Some(entities) = &msg.entities else {
         return false;
     };
-    let text = msg.text.as_deref().unwrap_or("");
+    let text = msg
+        .text
+        .as_deref()
+        .or(msg.caption.as_deref())
+        .unwrap_or("");
     for ent in entities {
         if ent.entity_type != "mention" {
             continue;
@@ -100,4 +119,65 @@ pub fn display_user(user: &User) -> String {
         .as_ref()
         .map(|u| format!("@{u}"))
         .unwrap_or_else(|| user.id.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::api::{Chat, Document, Message, PhotoSize, User};
+
+    fn test_msg(text: Option<&str>, caption: Option<&str>, doc: bool) -> Message {
+        Message {
+            message_id: 1,
+            chat: Chat {
+                id: 42,
+                chat_type: "private".into(),
+                title: None,
+            },
+            from: Some(User {
+                id: 99,
+                username: Some("alice".into()),
+                is_bot: false,
+            }),
+            text: text.map(str::to_string),
+            caption: caption.map(str::to_string),
+            document: doc.then(|| Document {
+                file_id: "fid".into(),
+                file_name: Some("notes.txt".into()),
+                mime_type: Some("text/plain".into()),
+            }),
+            photo: None,
+            voice: None,
+            audio: None,
+            video: None,
+            entities: None,
+            reply_to_message: None,
+            message_thread_id: None,
+        }
+    }
+
+    #[test]
+    fn parse_document_without_caption() {
+        let msg = test_msg(None, None, true);
+        let inbound = parse_message(&msg, 1, None).expect("document only");
+        assert!(inbound.text.is_empty());
+    }
+
+    #[test]
+    fn parse_photo_with_caption() {
+        let mut msg = test_msg(None, Some("look"), false);
+        msg.photo = Some(vec![PhotoSize {
+            file_id: "p1".into(),
+            width: 100,
+            height: 100,
+        }]);
+        let inbound = parse_message(&msg, 1, None).unwrap();
+        assert_eq!(inbound.text, "look");
+    }
+
+    #[test]
+    fn skip_empty_message() {
+        let msg = test_msg(None, None, false);
+        assert!(parse_message(&msg, 1, None).is_none());
+    }
 }

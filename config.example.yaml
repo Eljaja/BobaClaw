@@ -53,6 +53,21 @@ cron:
   #     channel: telegram
   #     peer: "123456789"
 
+# External MCP servers (stdio). Tools appear as mcp_<server>_<tool> in the agent.
+mcp_servers:
+  # filesystem:
+  #   command: npx
+  #   args:
+  #     - -y
+  #     - "@modelcontextprotocol/server-filesystem"
+  #     - /tmp
+  #   env: {}
+  #   enabled: true
+  #   timeout_secs: 120
+  #   connect_timeout_secs: 60
+  #   tools_allowlist: []   # empty = all tools
+  #   tools_denylist: []
+
 routing:
   rules:
     - match:

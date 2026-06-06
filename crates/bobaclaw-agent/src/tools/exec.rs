@@ -190,11 +190,30 @@ fn truncate_label(s: &str, max: usize) -> String {
 }
 
 fn preview_output(summary: &str) -> String {
-    summary
+    let lines: Vec<&str> = summary
         .lines()
-        .find(|l| !l.trim().is_empty())
-        .map(|l| sanitize_status_text(l.trim(), 56))
-        .unwrap_or_else(|| "ok".into())
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .take(6)
+        .collect();
+    if lines.is_empty() {
+        return "ok".into();
+    }
+    let joined = lines
+        .iter()
+        .map(|line| sanitize_status_text(line, 120))
+        .collect::<Vec<_>>()
+        .join("\n");
+    truncate_preview(&joined, 280)
+}
+
+fn truncate_preview(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        return s.to_string();
+    }
+    let mut out: String = s.chars().take(max).collect();
+    out.push('…');
+    out
 }
 
 fn sanitize_workdir(workdir: &str) -> anyhow::Result<String> {

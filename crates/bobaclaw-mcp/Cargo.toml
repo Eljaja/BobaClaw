@@ -1,15 +1,14 @@
 [package]
-name = "bobaclaw-provider"
+name = "bobaclaw-mcp"
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
 anyhow.workspace = true
-async-trait.workspace = true
 bobaclaw-core.workspace = true
-reqwest.workspace = true
+bobaclaw-provider.workspace = true
+rmcp.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-thiserror.workspace = true
-tokio = { workspace = true, features = ["time"] }
+tokio.workspace = true
 tracing.workspace = true

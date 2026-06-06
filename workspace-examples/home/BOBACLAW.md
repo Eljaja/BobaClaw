@@ -24,6 +24,7 @@ Runtime injects this file plus optional `SOUL.md`, `USER.md`, `TOOLS.md`, `MEMOR
 - With `executor.network` and `executor.sandbox_packages` (defaults: on), the sandbox has **internet** (`--share-net`) and writable install paths under `.bobaclaw-sandbox/` (`/usr/local`, apt state, `HOME=/home/sandbox`). Use `apt`, `pip`, `npm`, `cargo` as needed; prefer project venvs when possible.
 - Commands, builds, repo status → `exec`; do not tell the human to open a terminal.
 - Skills in `skills/` — follow matching `SKILL.md`.
+- **MCP** tools (`mcp_<server>_<name>`) from `mcp_servers` in `~/.bobaclaw/config.yaml` — run on the host, not in bubblewrap; use when they fit the task.
 - Environment notes → `TOOLS.md`.
 
 ## Memory

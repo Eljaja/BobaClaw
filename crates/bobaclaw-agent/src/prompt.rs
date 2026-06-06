@@ -1,7 +1,10 @@
 //! System prompt assembly — synthesis of Hermes (stable tiers, tool discipline,
 //! compaction) and OpenClaw (workspace bootstrap files, memory rules).
 
+use std::sync::Arc;
+
 use bobaclaw_core::{head_tail_with_hint, BobaPaths};
+use bobaclaw_mcp::McpHub;
 use bobaclaw_skills::SkillRegistry;
 use std::path::Path;
 
@@ -34,7 +37,11 @@ For new facts to remember: append to `MEMORY.md` or `memory/` (e.g. `memory/word
 const EXEC_DISCIPLINE: &str = "# Execution discipline\n\
 - Use `exec` for arithmetic, hashes, current time/date, system state, and git state — \
 not guesswork.\n\
+- Inbound channel files appear as `[file:…]`, `[image:…]`, etc. — paths relative to `/workspace` (exec cwd). \
+Open them with `exec` (e.g. `cat path`).\n\
 - Injected memory files and prior `exec` output in this session are authoritative for stored user facts.\n\
+- If your last assistant message in session history ends with a `<!-- tool-results -->` block, \
+treat that block as authoritative command output (not user-facing prose).\n\
 - Check prerequisites before destructive or wide-reaching changes.\n\
 - Verify results before claiming done.\n\
 - If required context is missing, use `exec` to discover it; ask the user only when tools cannot.";
@@ -48,6 +55,12 @@ Do not tell the user you lack a scheduler — use `schedule` or explain cron con
 const SKILLS_HINT: &str = "# Skills\n\
 When a skill matches the request, follow its SKILL.md. \
 After a non-trivial success, consider capturing the workflow as a skill for reuse.";
+
+const MCP_HINT: &str = "# MCP tools\n\
+Tools named `mcp_<server>_<tool>` call external MCP servers configured in `config.yaml` (`mcp_servers`). \
+They run on the host (not inside the bubblewrap sandbox) and may access network or credentials you configured. \
+Use MCP only through the tool API (JSON-RPC), not by piping shell commands into an MCP process. \
+Prefer MCP when a configured tool fits; use `exec` for workspace shell work.";
 
 const LANGUAGE_HINT: &str = "# Language\n\
 System instructions are in English. Reply in the same language the user writes in unless they ask otherwise.";
@@ -141,7 +154,12 @@ pub fn strip_summary_prefix(content: &str) -> String {
 
 // --- Workspace bootstrap (OpenClaw files + Hermes Project Context header) ---
 
-pub fn build_system_prompt(paths: &BobaPaths, group: &str, skills: &SkillRegistry) -> String {
+pub fn build_system_prompt(
+    paths: &BobaPaths,
+    group: &str,
+    skills: &SkillRegistry,
+    mcp: Option<&Arc<McpHub>>,
+) -> String {
     let workspace_path = paths.group_workspace(group);
     let workspace = workspace_path.display().to_string();
 
@@ -163,6 +181,23 @@ pub fn build_system_prompt(paths: &BobaPaths, group: &str, skills: &SkillRegistr
             "Installed skills (check SKILL.md when relevant): {}.",
             skills.names().join(", ")
         ));
+    }
+
+    if let Some(hub) = mcp {
+        if !hub.is_empty() {
+            stable.push(MCP_HINT.to_string());
+            let specs = hub.tool_specs();
+            let names: Vec<_> = specs.iter().map(|t| t.function.name.as_str()).collect();
+            if !names.is_empty() && names.len() <= 24 {
+                stable.push(format!("Available MCP tools: {}.", names.join(", ")));
+            } else if !names.is_empty() {
+                stable.push(format!(
+                    "Available MCP tools: {} (and {} more).",
+                    names[..20].join(", "),
+                    names.len() - 20
+                ));
+            }
+        }
     }
 
     let mut parts = stable.join("\n\n");
@@ -315,7 +350,7 @@ mod tests {
             workspace: home.join("workspace"),
         };
         let skills = SkillRegistry::load(&ws).unwrap();
-        let prompt = build_system_prompt(&paths, "home", &skills);
+        let prompt = build_system_prompt(&paths, "home", &skills, None);
         assert!(prompt.contains("BobaClaw"));
         assert!(prompt.contains("BOBACLAW.md"));
         assert!(prompt.contains("Use exec"));
@@ -339,7 +374,7 @@ mod tests {
             workspace: home.join("workspace"),
         };
         let skills = SkillRegistry::load(&ws).unwrap();
-        let prompt = build_system_prompt(&paths, "home", &skills);
+        let prompt = build_system_prompt(&paths, "home", &skills, None);
         assert!(prompt.contains("memory/words.txt"));
         assert!(prompt.contains("вельвет"));
     }
