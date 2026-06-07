@@ -70,7 +70,7 @@ Contributor instructions must be **English only**: `AGENTS.md`, `.cursor/rules/`
 - [x] Stable validation via `make ci`.
 - [x] Plan template in `plans/templates/`.
 - [x] PR template with validation and rollback sections.
-- [x] Tool contracts for runtime tools (`exec`, `schedule`, skills, MCP).
+- [x] Tool contracts for runtime tools (`exec`, `schedule` family, skills, MCP).
 - [x] Sandbox contract aligned with ADR 003 executor profiles.
 - [x] Smoke eval suite in `evals/smoke/`.
 - [x] CI runs structure check, secret scan, and Rust tests.

@@ -21,7 +21,8 @@ checks:
       - harness/sandbox-contract.md
       - harness/policy.md
       - harness/tools/exec.md
-    expectation: Tool, sandbox, policy, and core runtime tool contracts exist.
+      - harness/tools/schedule.md
+    expectation: Tool, sandbox, policy, and core runtime tool contracts exist (including agent scheduling tools).
   - id: ci
     path: .github/workflows/ci.yml
     expectation: CI workflow runs structure check, secret scan, and Rust tests.
