@@ -96,23 +96,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Sync repo on homelab runner
-        run: |
-          set -eu
-          DEPLOY_PATH="${DEPLOY_PATH:-/opt/bobaclaw}"
-          mkdir -p "$DEPLOY_PATH/data"
-          if [ -d "$DEPLOY_PATH/.git" ]; then
-            git -C "$DEPLOY_PATH" pull --ff-only
-          fi
+      - name: Prepare data directory
+        run: mkdir -p "${DEPLOY_PATH:-/opt/bobaclaw}/data"
         env:
           DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
 
       - name: Deploy gateway + telegram channel
         run: |
           set -eu
-          DEPLOY_PATH="${DEPLOY_PATH:-/opt/bobaclaw}"
+          export DEPLOY_PATH="${DEPLOY_PATH:-/opt/bobaclaw}"
           export BOBACLAW_IMAGE="${{ needs.build-and-push.outputs.bobaclaw_image }}"
           export BOBACLAW_SANDBOX_IMAGE="${{ needs.build-and-push.outputs.sandbox_image }}"
-          "$DEPLOY_PATH/scripts/docker-prod-deploy.sh"
+          chmod +x ./scripts/docker-prod-deploy.sh
+          ./scripts/docker-prod-deploy.sh
         env:
           DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}

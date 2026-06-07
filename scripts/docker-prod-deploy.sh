@@ -1,35 +1,42 @@
 #!/usr/bin/env bash
 # Deploy BobaClaw production stack (gateway + embedded scheduler + telegram polling).
 #
-# Secrets and provider/channel settings live in $DEPLOY_PATH/data/config.yaml (bind-mounted).
-# docker/.env is optional (image tags / RUST_LOG only).
+# Runs from the git checkout (compose + scripts). Persistent data:
+#   $DEPLOY_PATH/data/config.yaml  (default DEPLOY_PATH=/opt/bobaclaw)
 #
 #   DEPLOY_PATH=/opt/bobaclaw ./scripts/docker-prod-deploy.sh
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 DEPLOY_PATH="${DEPLOY_PATH:-/opt/bobaclaw}"
-COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
-CONFIG_FILE="${DEPLOY_PATH}/data/config.yaml"
+DATA_DIR="${BOBACLAW_DATA_DIR:-$DEPLOY_PATH/data}"
+COMPOSE_FILE="${COMPOSE_FILE:-$REPO_ROOT/docker-compose.prod.yml}"
+CONFIG_FILE="$DATA_DIR/config.yaml"
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:18790/health}"
 HEALTH_TIMEOUT_SECS="${HEALTH_TIMEOUT_SECS:-90}"
 LOG_TIMEOUT_SECS="${LOG_TIMEOUT_SECS:-60}"
 
-cd "$DEPLOY_PATH"
-mkdir -p "$DEPLOY_PATH/data"
+mkdir -p "$DATA_DIR"
+cd "$REPO_ROOT"
 
-if [ -f docker/.env ]; then
+if [ -f "$REPO_ROOT/docker/.env" ]; then
   # Optional: BOBACLAW_IMAGE, BOBACLAW_SANDBOX_IMAGE, RUST_LOG, etc.
   # shellcheck disable=SC1091
   set -a
-  source docker/.env
+  source "$REPO_ROOT/docker/.env"
   set +a
 fi
+
+export BOBACLAW_DATA_DIR="$DATA_DIR"
 
 if [ ! -f "$CONFIG_FILE" ]; then
   echo "note: $CONFIG_FILE not found — first container start will seed a template" >&2
 else
   echo "config: $CONFIG_FILE"
 fi
+echo "repo: $REPO_ROOT"
+echo "data: $DATA_DIR"
 
 telegram_enabled_in_config() {
   [ -f "$CONFIG_FILE" ] || return 1

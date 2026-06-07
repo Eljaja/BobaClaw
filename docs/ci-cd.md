@@ -49,8 +49,7 @@ The runner host needs:
 
 - outbound HTTPS to `github.com` and `ghcr.io`;
 - Docker and `docker compose`;
-- a clone of this repo at `DEPLOY_PATH`;
-- persistent data at `DEPLOY_PATH/data/` (bind-mounted to `/data`: **`config.yaml`** with API key and Telegram token, `state.db`, `workspace/`). No `docker/.env` required.
+- persistent data at `DEPLOY_PATH/data/` (default `/opt/bobaclaw/data`, bind-mounted to `/data`: **`config.yaml`**, `state.db`, `workspace/`). No git clone or `docker/.env` required at `DEPLOY_PATH` — the deploy job runs `scripts/docker-prod-deploy.sh` from the Actions checkout.
 
 No inbound SSH from the internet is required.
 

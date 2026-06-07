@@ -12,6 +12,7 @@ BIN_DEBUG   ?= target/debug/bobaclaw
 MESSAGE     ?= Hello
 
 COMPOSE_FILE  ?= docker-compose.prod.yml
+DEPLOY_PATH   ?= /opt/bobaclaw
 BOBACLAW_IMAGE ?= bobaclaw/bobaclaw:latest
 BOBACLAW_SANDBOX_IMAGE ?= bobaclaw/sandbox:latest
 COMPOSE       := docker compose -f $(COMPOSE_FILE)
@@ -115,8 +116,8 @@ docker-build: ## Build bobaclaw + sandbox images (BOBACLAW_IMAGE=… BOBACLAW_SA
 	BOBACLAW_IMAGE=$(BOBACLAW_IMAGE) BOBACLAW_SANDBOX_IMAGE=$(BOBACLAW_SANDBOX_IMAGE) \
 		./scripts/docker-prod-build.sh
 
-docker-up: ## Start production stack (gateway + scheduler + telegram; secrets in data/config.yaml)
-	DEPLOY_PATH=$$(pwd) BOBACLAW_IMAGE=$(BOBACLAW_IMAGE) BOBACLAW_SANDBOX_IMAGE=$(BOBACLAW_SANDBOX_IMAGE) \
+docker-up: ## Start production stack (gateway + scheduler + telegram; secrets in DEPLOY_PATH/data/config.yaml)
+	DEPLOY_PATH=$(DEPLOY_PATH) BOBACLAW_IMAGE=$(BOBACLAW_IMAGE) BOBACLAW_SANDBOX_IMAGE=$(BOBACLAW_SANDBOX_IMAGE) \
 		./scripts/docker-prod-deploy.sh
 
 docker-down: ## Stop production stack

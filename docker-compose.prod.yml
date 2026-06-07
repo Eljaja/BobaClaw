@@ -25,7 +25,7 @@ services:
       BOBACLAW_PULL_IMAGES: ${BOBACLAW_PULL_IMAGES:-1}
       RUST_LOG: ${RUST_LOG:-bobaclaw=info}
     volumes:
-      - /opt/bobaclaw/data:/data
+      - ${BOBACLAW_DATA_DIR:-/opt/bobaclaw/data}:/data
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "${BOBACLAW_GATEWAY_PORT:-18790}:18790"
