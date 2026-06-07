@@ -1,10 +1,11 @@
 # Production stack: BobaClaw gateway + host Docker for sandbox and Obscura MCP.
 #
 # Setup:
-#   cp docker/.env.example docker/.env   # set OPENAI_API_KEY, TELEGRAM_BOT_TOKEN
-#   mkdir -p /opt/bobaclaw/data          # config.yaml, workspace, state.db
-#   make docker-build
-#   make docker-up
+#   mkdir -p /opt/bobaclaw/data
+#   edit /opt/bobaclaw/data/config.yaml   # API key, Telegram token, channels, executor
+#   make docker-build && make docker-up
+#
+# Optional docker/.env — image tags / RUST_LOG only (no secrets required).
 #
 # Update (CI/CD or manual):
 #   make docker-pull && make docker-up
@@ -17,17 +18,11 @@ services:
       dockerfile: docker/bobaclaw/Dockerfile
     container_name: bobaclaw-gateway
     restart: unless-stopped
-    env_file:
-      - path: docker/.env
-        required: false
     environment:
       BOBACLAW_HOME: /data
       BOBACLAW_SANDBOX_IMAGE: ${BOBACLAW_SANDBOX_IMAGE:-bobaclaw/sandbox:latest}
       OBSCURA_MCP_IMAGE: ${OBSCURA_MCP_IMAGE:-h4ckf0r0day/obscura}
       BOBACLAW_PULL_IMAGES: ${BOBACLAW_PULL_IMAGES:-1}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
-      TELEGRAM_PROXY: ${TELEGRAM_PROXY:-}
       RUST_LOG: ${RUST_LOG:-bobaclaw=info}
     volumes:
       - /opt/bobaclaw/data:/data

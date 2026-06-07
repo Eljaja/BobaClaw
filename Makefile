@@ -108,14 +108,14 @@ stop-obscura-mcp: ## Remove leftover Obscura MCP containers
 
 # --- production Docker (gateway + host Docker for sandbox / Obscura) ---
 
-docker-env: ## Create docker/.env from example if missing
-	@test -f docker/.env || (cp docker/.env.example docker/.env && echo "created docker/.env — set OPENAI_API_KEY and TELEGRAM_BOT_TOKEN")
+docker-env: ## Optional: create docker/.env for image tags / RUST_LOG (secrets go in data/config.yaml)
+	@test -f docker/.env || (cp docker/.env.example docker/.env && echo "created docker/.env (optional)")
 
 docker-build: ## Build bobaclaw + sandbox images (BOBACLAW_IMAGE=… BOBACLAW_SANDBOX_IMAGE=…)
 	BOBACLAW_IMAGE=$(BOBACLAW_IMAGE) BOBACLAW_SANDBOX_IMAGE=$(BOBACLAW_SANDBOX_IMAGE) \
 		./scripts/docker-prod-build.sh
 
-docker-up: docker-env ## Start production stack (gateway + scheduler + telegram)
+docker-up: ## Start production stack (gateway + scheduler + telegram; secrets in data/config.yaml)
 	DEPLOY_PATH=$$(pwd) BOBACLAW_IMAGE=$(BOBACLAW_IMAGE) BOBACLAW_SANDBOX_IMAGE=$(BOBACLAW_SANDBOX_IMAGE) \
 		./scripts/docker-prod-deploy.sh
 

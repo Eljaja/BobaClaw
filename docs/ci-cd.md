@@ -49,8 +49,8 @@ The runner host needs:
 
 - outbound HTTPS to `github.com` and `ghcr.io`;
 - Docker and `docker compose`;
-- a clone of this repo at `DEPLOY_PATH` with `docker/.env` secrets;
-- persistent data at `DEPLOY_PATH/data/` (bind-mounted to `/data` in the container: `config.yaml`, `state.db`, `workspace/`).
+- a clone of this repo at `DEPLOY_PATH`;
+- persistent data at `DEPLOY_PATH/data/` (bind-mounted to `/data`: **`config.yaml`** with API key and Telegram token, `state.db`, `workspace/`). No `docker/.env` required.
 
 No inbound SSH from the internet is required.
 
@@ -61,7 +61,7 @@ No inbound SSH from the internet is required.
 | `ci.yml` | PR, push to `main` | `ubuntu-latest` | Harness structure, secrets, Rust fmt/clippy/test |
 | `deploy.yml` | push to `main`, tags | `ubuntu-latest` (build) + **self-hosted** (deploy) | Docker build/push + `scripts/docker-prod-deploy.sh` (gateway, embedded scheduler, telegram polling) |
 
-After deploy, the self-hosted job waits for `/health`, log line `telegram bot connected`, and `scheduler running`. Requires `docker/.env` with `TELEGRAM_BOT_TOKEN` on the server.
+After deploy, the self-hosted job waits for `/health`, log line `telegram bot connected` (when `channels.telegram.enabled: true` in `data/config.yaml`), and `scheduler running`.
 
 ## Agent-generated PR checks
 

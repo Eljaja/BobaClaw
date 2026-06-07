@@ -46,11 +46,12 @@ jobs:
       - name: Set image names
         id: meta
         run: |
-          owner="${{ github.repository_owner }}"
-          repo="${{ github.event.repository.name }}"
+          # Docker/OCI image refs must be lowercase (repo owner/name can be mixed case on GitHub).
+          owner=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          repo=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
           tag="latest"
           if [ "${{ github.ref_type }}" = "tag" ]; then
-            tag="${{ github.ref_name }}"
+            tag=$(echo "${{ github.ref_name }}" | tr '[:upper:]' '[:lower:]')
           fi
           echo "bobaclaw_image=${REGISTRY}/${owner}/${repo}/bobaclaw:${tag}" >> "$GITHUB_OUTPUT"
           echo "sandbox_image=${REGISTRY}/${owner}/${repo}/sandbox:${tag}" >> "$GITHUB_OUTPUT"

@@ -30,12 +30,6 @@ if [ "$PULL_IMAGES" = "1" ] && command -v docker >/dev/null 2>&1; then
   fi
 fi
 
-if [ -z "${OPENAI_API_KEY:-}" ]; then
-  echo "warn: OPENAI_API_KEY not set" >&2
-fi
-if [ -z "${TELEGRAM_BOT_TOKEN:-}" ]; then
-  echo "warn: TELEGRAM_BOT_TOKEN not set — telegram channel will fail to connect" >&2
-fi
-
+echo "config: $BOBACLAW_HOME/config.yaml (provider + telegram secrets live here)"
 echo "starting bobaclaw gateway (http api + embedded scheduler + telegram long-poll)"
 exec bobaclaw gateway start
