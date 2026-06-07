@@ -158,12 +158,10 @@ impl McpHub {
                 .map_err(|e| anyhow::anyhow!("invalid MCP tool arguments: {e}"))?
         };
 
-        let mut args_obj = args
-            .as_object()
-            .cloned()
-            .unwrap_or_default();
+        let mut args_obj = args.as_object().cloned().unwrap_or_default();
         normalize_browser_tool_args(&binding.original_name, &mut args_obj);
-        let params = CallToolRequestParams::new(binding.original_name.clone()).with_arguments(args_obj);
+        let params =
+            CallToolRequestParams::new(binding.original_name.clone()).with_arguments(args_obj);
 
         let timeout = handle.timeout;
         let result = {
@@ -337,7 +335,10 @@ mod tests {
         let mut args = serde_json::Map::new();
         args.insert("url".into(), json!("https://ya.ru"));
         normalize_browser_tool_args("browser_navigate", &mut args);
-        assert_eq!(args.get("waitUntil").and_then(|v| v.as_str()), Some("domcontentloaded"));
+        assert_eq!(
+            args.get("waitUntil").and_then(|v| v.as_str()),
+            Some("domcontentloaded")
+        );
     }
 
     #[test]

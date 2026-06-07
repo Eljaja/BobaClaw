@@ -56,7 +56,11 @@ impl<'a> PairingStore<'a> {
         Ok(code)
     }
 
-    pub async fn approve_by_code(&self, channel: &str, code: &str) -> anyhow::Result<Option<String>> {
+    pub async fn approve_by_code(
+        &self,
+        channel: &str,
+        code: &str,
+    ) -> anyhow::Result<Option<String>> {
         let now = Utc::now().timestamp_millis() as f64 / 1000.0;
         let peer: Option<String> = sqlx::query_scalar(
             "SELECT peer FROM pairing_requests WHERE channel = ?1 AND code = ?2 AND status = 'pending'",

@@ -9,11 +9,7 @@ pub const SKILL_VIEW: &str = "skill_view";
 pub const SKILLS_LIST: &str = "skills_list";
 
 pub fn skill_tool_specs() -> Vec<ToolSpec> {
-    vec![
-        skill_manage_spec(),
-        skill_view_spec(),
-        skills_list_spec(),
-    ]
+    vec![skill_manage_spec(), skill_view_spec(), skills_list_spec()]
 }
 
 pub fn is_skill_tool(name: &str) -> bool {
@@ -137,12 +133,7 @@ pub fn handle_skill_tool(
                     let new = args
                         .new_string
                         .ok_or_else(|| anyhow::anyhow!("patch requires new_string"))?;
-                    mgr.patch(
-                        &args.name,
-                        &old,
-                        &new,
-                        args.file_path.as_deref(),
-                    )
+                    mgr.patch(&args.name, &old, &new, args.file_path.as_deref())
                 }
                 "delete" => mgr.delete(&args.name),
                 "write_file" => {
@@ -176,7 +167,11 @@ pub fn handle_skill_tool(
             }
             let mut lines = Vec::new();
             for item in listings {
-                let status = if item.entry.enabled { "enabled" } else { "disabled" };
+                let status = if item.entry.enabled {
+                    "enabled"
+                } else {
+                    "disabled"
+                };
                 lines.push(format!(
                     "- {} ({}) — {}",
                     item.entry.name, status, item.entry.description

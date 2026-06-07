@@ -233,6 +233,9 @@ mod tests {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, b"hello").unwrap();
         let out = format_user_content("", std::slice::from_ref(&att), dir.path());
-        assert_eq!(out, "[file:inbox/telegram/1/2/a.txt]\n[Content of a.txt]:\nhello");
+        assert_eq!(
+            out,
+            "[file:inbox/telegram/1/2/a.txt]\n[Content of a.txt]:\nhello"
+        );
     }
 }

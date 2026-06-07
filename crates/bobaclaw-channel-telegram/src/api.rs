@@ -33,7 +33,11 @@ impl TelegramApi {
         format!("{API_BASE}/bot{}/{method}", self.token)
     }
 
-    async fn call<T: DeserializeOwned>(&self, method: &str, body: &impl Serialize) -> anyhow::Result<T> {
+    async fn call<T: DeserializeOwned>(
+        &self,
+        method: &str,
+        body: &impl Serialize,
+    ) -> anyhow::Result<T> {
         let url = self.url(method);
         let resp = match self.client.post(&url).json(body).send().await {
             Ok(r) => r,
@@ -46,9 +50,9 @@ impl TelegramApi {
                 return Err(err);
             }
         };
-        let resp = resp.error_for_status().map_err(|e| {
-            anyhow::anyhow!("telegram {method} HTTP error: {e}")
-        })?;
+        let resp = resp
+            .error_for_status()
+            .map_err(|e| anyhow::anyhow!("telegram {method} HTTP error: {e}"))?;
         let envelope: ApiEnvelope<T> = resp.json().await?;
         if !envelope.ok {
             anyhow::bail!(
@@ -94,11 +98,7 @@ impl TelegramApi {
         Ok(())
     }
 
-    pub async fn get_updates(
-        &self,
-        offset: i64,
-        timeout_secs: u32,
-    ) -> anyhow::Result<Vec<Update>> {
+    pub async fn get_updates(&self, offset: i64, timeout_secs: u32) -> anyhow::Result<Vec<Update>> {
         #[derive(Serialize)]
         struct Body<'a> {
             offset: i64,
@@ -127,7 +127,10 @@ impl TelegramApi {
         for (i, part) in parts.iter().enumerate() {
             let reply = if i == 0 { reply_to } else { None };
             let thread = if i == 0 { thread_id } else { None };
-            last = Some(self.send_message_part(chat_id, part, reply, thread, format).await?);
+            last = Some(
+                self.send_message_part(chat_id, part, reply, thread, format)
+                    .await?,
+            );
         }
         last.ok_or_else(|| anyhow::anyhow!("telegram sendMessage: empty text"))
     }
@@ -150,13 +153,7 @@ impl TelegramApi {
         let subparts = split_for_telegram(text, TELEGRAM_SPLIT_UTF16 / 2);
         if subparts.len() <= 1 {
             return self
-                .send_single_formatted(
-                    chat_id,
-                    text,
-                    reply_to,
-                    thread_id,
-                    TelegramFormat::Plain,
-                )
+                .send_single_formatted(chat_id, text, reply_to, thread_id, TelegramFormat::Plain)
                 .await;
         }
 
@@ -181,12 +178,16 @@ impl TelegramApi {
         format: TelegramFormat,
     ) -> anyhow::Result<Message> {
         let msg = format_for_telegram(text, format_mode(format));
-        match self.send_formatted(chat_id, &msg, reply_to, thread_id).await {
+        match self
+            .send_formatted(chat_id, &msg, reply_to, thread_id)
+            .await
+        {
             Ok(m) => Ok(m),
             Err(e) if format == TelegramFormat::Html && is_telegram_parse_error(&e) => {
                 tracing::debug!("telegram HTML parse failed, retrying plain: {e}");
                 let plain = format_for_telegram(text, TelegramFormatMode::Plain);
-                self.send_formatted(chat_id, &plain, reply_to, thread_id).await
+                self.send_formatted(chat_id, &plain, reply_to, thread_id)
+                    .await
             }
             Err(e) => Err(e),
         }
@@ -324,7 +325,9 @@ impl TelegramApi {
             chat_id: i64,
             action: &'a str,
         }
-        let _: serde_json::Value = self.call("sendChatAction", &Body { chat_id, action }).await?;
+        let _: serde_json::Value = self
+            .call("sendChatAction", &Body { chat_id, action })
+            .await?;
         Ok(())
     }
 

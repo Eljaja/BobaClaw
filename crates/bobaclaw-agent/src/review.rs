@@ -4,9 +4,7 @@ use bobaclaw_skill_forge::SkillForge;
 use bobaclaw_state::StateDb;
 use tracing::info;
 
-use crate::tools::{
-    handle_skill_tool, skill_tool_specs, SKILL_MANAGE,
-};
+use crate::tools::{handle_skill_tool, skill_tool_specs, SKILL_MANAGE};
 
 /// Hermes default: background skill review after this many tool calls in one turn.
 pub const SKILL_REVIEW_TOOL_THRESHOLD: usize = 10;
@@ -62,7 +60,10 @@ pub async fn maybe_post_turn_skill_save(
     }
 
     if let Some(name) = run_background_skill_review(paths, config, agent_group, snapshot).await {
-        info!(skill = name.as_str(), "background skill review created skill");
+        info!(
+            skill = name.as_str(),
+            "background skill review created skill"
+        );
         return Some(SkillSaveOutcome {
             skill_name: name,
             source: SkillSaveSource::BackgroundReview,
@@ -73,7 +74,11 @@ pub async fn maybe_post_turn_skill_save(
     let forge = SkillForge::new(paths.clone(), agent_group.to_string());
     match forge.draft_and_promote_from_run(state, run_id).await {
         Ok(name) => {
-            info!(run_id = run_id, skill = name.as_str(), "forge auto-promoted skill from run");
+            info!(
+                run_id = run_id,
+                skill = name.as_str(),
+                "forge auto-promoted skill from run"
+            );
             Some(SkillSaveOutcome {
                 skill_name: name,
                 source: SkillSaveSource::ForgeAutoPromote,

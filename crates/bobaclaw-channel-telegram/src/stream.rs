@@ -65,12 +65,7 @@ impl TelegramStream {
     pub async fn finalize_with_fallback(&self, final_text: &str) -> anyhow::Result<()> {
         match self
             .api
-            .edit_or_send_long(
-                self.chat_id,
-                self.message_id,
-                final_text,
-                self.format,
-            )
+            .edit_or_send_long(self.chat_id, self.message_id, final_text, self.format)
             .await
         {
             Ok(()) => Ok(()),
@@ -84,7 +79,9 @@ impl TelegramStream {
                 )
                 .await
                 .map_err(|second| {
-                    second.context(format!("telegram finalize failed after HTML retry: {first}"))
+                    second.context(format!(
+                        "telegram finalize failed after HTML retry: {first}"
+                    ))
                 }),
         }
     }

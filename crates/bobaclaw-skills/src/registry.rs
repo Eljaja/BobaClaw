@@ -62,10 +62,7 @@ impl SkillRegistry {
 
         let state = SkillStateStore::load(workspace_group)?;
         let mut skills = Vec::new();
-        for entry in WalkDir::new(&skills_dir)
-            .into_iter()
-            .filter_map(|e| e.ok())
-        {
+        for entry in WalkDir::new(&skills_dir).into_iter().filter_map(|e| e.ok()) {
             if entry.file_name() == ".skills-state.json" {
                 continue;
             }
@@ -120,9 +117,12 @@ fn parse_skill(path: &Path) -> anyhow::Result<SkillEntry> {
     let raw = std::fs::read_to_string(path)?;
     let (front, body) = split_frontmatter(&raw);
     let fm: SkillFrontmatter = serde_yaml::from_str(front)?;
-    let name = fm
-        .name
-        .unwrap_or_else(|| path.parent().and_then(|p| p.file_name()).map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "unnamed".into()));
+    let name = fm.name.unwrap_or_else(|| {
+        path.parent()
+            .and_then(|p| p.file_name())
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "unnamed".into())
+    });
     let tags = fm
         .metadata
         .and_then(|m| m.bobaclaw)

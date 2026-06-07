@@ -59,7 +59,9 @@ No inbound SSH from the internet is required.
 | Workflow | Trigger | Runner | Purpose |
 |----------|---------|--------|---------|
 | `ci.yml` | PR, push to `main` | `ubuntu-latest` | Harness structure, secrets, Rust fmt/clippy/test |
-| `deploy.yml` | push to `main`, tags | `ubuntu-latest` (build) + **self-hosted** (deploy) | Docker build/push + homelab `compose up` |
+| `deploy.yml` | push to `main`, tags | `ubuntu-latest` (build) + **self-hosted** (deploy) | Docker build/push + `scripts/docker-prod-deploy.sh` (gateway, embedded scheduler, telegram polling) |
+
+After deploy, the self-hosted job waits for `/health`, log line `telegram bot connected`, and `scheduler running`. Requires `docker/.env` with `TELEGRAM_BOT_TOKEN` on the server.
 
 ## Agent-generated PR checks
 

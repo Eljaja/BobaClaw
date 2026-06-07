@@ -24,7 +24,11 @@ pub fn message_has_attachments(msg: &Message) -> bool {
         || msg.video.is_some()
 }
 
-pub fn parse_message(msg: &Message, bot_id: i64, bot_username: Option<&str>) -> Option<InboundMessage> {
+pub fn parse_message(
+    msg: &Message,
+    bot_id: i64,
+    bot_username: Option<&str>,
+) -> Option<InboundMessage> {
     let text = msg
         .text
         .as_deref()
@@ -64,15 +68,10 @@ pub fn parse_message(msg: &Message, bot_id: i64, bot_username: Option<&str>) -> 
         peer,
         chat_kind,
         user_id: user.id,
-        user_name: user.username.clone().or_else(|| {
-            msg.chat.title.clone()
-        }),
+        user_name: user.username.clone().or_else(|| msg.chat.title.clone()),
         text,
         message_id: msg.message_id,
-        reply_to_message_id: msg
-            .reply_to_message
-            .as_ref()
-            .map(|m| m.message_id),
+        reply_to_message_id: msg.reply_to_message.as_ref().map(|m| m.message_id),
         is_bot_mentioned,
         is_reply_to_bot,
     })
@@ -82,11 +81,7 @@ fn message_mentions_bot(msg: &Message, bot_id: i64, bot_username: Option<&str>) 
     let Some(entities) = &msg.entities else {
         return false;
     };
-    let text = msg
-        .text
-        .as_deref()
-        .or(msg.caption.as_deref())
-        .unwrap_or("");
+    let text = msg.text.as_deref().or(msg.caption.as_deref()).unwrap_or("");
     for ent in entities {
         if ent.entity_type != "mention" {
             continue;

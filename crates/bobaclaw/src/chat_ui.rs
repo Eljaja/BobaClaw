@@ -103,11 +103,7 @@ impl ChatUi {
         })
     }
 
-    fn spawn_spinner(
-        &self,
-        status: Arc<Mutex<String>>,
-        done: Arc<AtomicBool>,
-    ) -> JoinHandle<()> {
+    fn spawn_spinner(&self, status: Arc<Mutex<String>>, done: Arc<AtomicBool>) -> JoinHandle<()> {
         let color = self.color;
         tokio::spawn(async move {
             let mut frame = 0usize;
@@ -130,12 +126,7 @@ impl ChatUi {
         })
     }
 
-    fn on_progress(
-        &self,
-        status: &Arc<Mutex<String>>,
-        activity: &ActivityLog,
-        event: AgentEvent,
-    ) {
+    fn on_progress(&self, status: &Arc<Mutex<String>>, activity: &ActivityLog, event: AgentEvent) {
         activity.push_event(&event);
         if let Ok(mut s) = status.lock() {
             *s = activity.spinner_line();
@@ -204,10 +195,7 @@ impl ChatUi {
         if resp.executed {
             if let Some(run_id) = &resp.run_id {
                 if self.color {
-                    eprintln!(
-                        "\x1b[2m  run {run_id} · session {}\x1b[0m",
-                        resp.session_id
-                    );
+                    eprintln!("\x1b[2m  run {run_id} · session {}\x1b[0m", resp.session_id);
                 } else {
                     eprintln!("  run {run_id} · session {}", resp.session_id);
                 }

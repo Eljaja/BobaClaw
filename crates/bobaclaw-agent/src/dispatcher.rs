@@ -53,10 +53,7 @@ impl AgentDispatcher {
 
         let cancel = CancellationToken::new();
         self.register_turn(&scope, cancel.clone()).await;
-        let result = self
-            .agent
-            .handle_with_progress(req, progress, cancel)
-            .await;
+        let result = self.agent.handle_with_progress(req, progress, cancel).await;
         self.unregister_turn(&scope).await;
         result
     }

@@ -43,7 +43,8 @@ impl Default for ContextConfig {
 
 impl ContextConfig {
     pub fn compact_threshold_tokens(&self) -> u32 {
-        self.context_window_tokens.saturating_sub(self.reserve_tokens)
+        self.context_window_tokens
+            .saturating_sub(self.reserve_tokens)
     }
 }
 

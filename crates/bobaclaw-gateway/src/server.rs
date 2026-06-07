@@ -5,8 +5,8 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use bobaclaw_agent::AgentDispatcher;
 use bobaclaw_channel_telegram::run_telegram_polling;
-use bobaclaw_scheduler::spawn_embedded_scheduler;
 use bobaclaw_core::{BobaConfig, BobaPaths, IngressKind, NormalizedRequest};
+use bobaclaw_scheduler::spawn_embedded_scheduler;
 use serde::{Deserialize, Serialize};
 
 pub struct GatewayState {

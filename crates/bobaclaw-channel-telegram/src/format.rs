@@ -1,9 +1,7 @@
 //! Markdown → Telegram HTML (GramIO-style: standard MD, not MarkdownV2).
 //! See https://gramio.dev/formatting — LLM markdown maps to Bot API HTML tags.
 
-use pulldown_cmark::{
-    CodeBlockKind, Event, Options, Parser, Tag, TagEnd,
-};
+use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TelegramFormatMode {
@@ -35,9 +33,7 @@ pub fn format_for_telegram(markdown: &str, mode: TelegramFormatMode) -> Formatte
 
 /// Convert common LLM markdown to [Telegram HTML](https://core.telegram.org/bots/api#html-style).
 pub fn markdown_to_telegram_html(markdown: &str) -> String {
-    let opts = Options::ENABLE_STRIKETHROUGH
-        | Options::ENABLE_TABLES
-        | Options::ENABLE_TASKLISTS;
+    let opts = Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TABLES | Options::ENABLE_TASKLISTS;
     let mut html = HtmlRenderer::new();
     for event in Parser::new_ext(markdown, opts) {
         html.on_event(event);

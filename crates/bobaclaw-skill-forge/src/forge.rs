@@ -147,10 +147,7 @@ impl SkillForge {
 
         let report = guard_skill_dir(&staging, TrustLevel::AgentCreated);
         if report.verdict == GuardVerdict::Dangerous {
-            anyhow::bail!(
-                "guard blocked promotion: {:?}",
-                report.findings
-            );
+            anyhow::bail!("guard blocked promotion: {:?}", report.findings);
         }
 
         let skill_md = std::fs::read_to_string(staging.join("SKILL.md"))?;
@@ -191,10 +188,7 @@ impl SkillForge {
 
         let report = guard_skill_dir(&staging, TrustLevel::AgentCreated);
         if report.verdict == GuardVerdict::Dangerous {
-            anyhow::bail!(
-                "guard blocked promotion: {:?}",
-                report.findings
-            );
+            anyhow::bail!("guard blocked promotion: {:?}", report.findings);
         }
 
         let skill_md = std::fs::read_to_string(staging.join("SKILL.md"))?;
@@ -218,12 +212,7 @@ impl SkillForge {
     }
 }
 
-fn build_skill_md(
-    run_id: &str,
-    skill_name: &str,
-    summary: &str,
-    result_summary: &str,
-) -> String {
+fn build_skill_md(run_id: &str, skill_name: &str, summary: &str, result_summary: &str) -> String {
     let summary_section = if summary.trim().is_empty() {
         "See source run result below.".to_string()
     } else {

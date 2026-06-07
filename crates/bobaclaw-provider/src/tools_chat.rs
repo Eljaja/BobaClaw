@@ -1,10 +1,10 @@
 use std::time::Duration;
 
 use bobaclaw_core::{ProviderConfig, TurnInterrupted};
-use tokio_util::sync::CancellationToken;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use tokio_util::sync::CancellationToken;
 
 use crate::openai_compat::content_value_to_string;
 
@@ -335,10 +335,7 @@ mod tests {
 
     #[test]
     fn system_and_user_text() {
-        assert_eq!(
-            ConversationMessage::system("sys").text_content(),
-            "sys"
-        );
+        assert_eq!(ConversationMessage::system("sys").text_content(), "sys");
         assert_eq!(ConversationMessage::user("hi").text_content(), "hi");
     }
 

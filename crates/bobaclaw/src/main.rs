@@ -1,9 +1,9 @@
 use bobaclaw_channel_telegram::{approve_pairing, list_pending_pairing, run_telegram_polling};
-use bobaclaw_scheduler::run_scheduler_daemon;
-use bobaclaw_core::{BobaConfig, BobaPaths, NormalizedRequest};
 use bobaclaw_core::ExecutorBackend;
+use bobaclaw_core::{BobaConfig, BobaPaths, NormalizedRequest};
 use bobaclaw_executor::{bwrap_apt_advisory, check_bwrap, check_docker, check_docker_sandbox};
 use bobaclaw_gateway::serve;
+use bobaclaw_scheduler::run_scheduler_daemon;
 use bobaclaw_skill_forge::SkillForge;
 use bobaclaw_skills::{guard_skill_dir, SkillRegistry, SkillStateStore, TrustLevel};
 use bobaclaw_state::StateDb;
@@ -118,16 +118,28 @@ enum SkillsCommand {
     /// List installed skills with enabled/disabled status
     List,
     /// Show SKILL.md content
-    View { name: String },
+    View {
+        name: String,
+    },
     /// Enable a skill for agent matching
-    Enable { name: String },
+    Enable {
+        name: String,
+    },
     /// Disable a skill (keeps files on disk)
-    Disable { name: String },
+    Disable {
+        name: String,
+    },
     /// List staged Skill Forge drafts
     Drafts,
-    Guard { path: String },
-    DraftFromRun { run_id: String },
-    Promote { draft_id: String },
+    Guard {
+        path: String,
+    },
+    DraftFromRun {
+        run_id: String,
+    },
+    Promote {
+        draft_id: String,
+    },
 }
 
 #[tokio::main]
@@ -144,16 +156,12 @@ async fn main() -> anyhow::Result<()> {
     match cli.command {
         Commands::Init => cmd_init(&paths, &config)?,
         Commands::Doctor => cmd_doctor(&paths, &config).await?,
-        Commands::Agent { message, group } => {
-            cmd_agent(&paths, &config, &message, group).await?
-        }
+        Commands::Agent { message, group } => cmd_agent(&paths, &config, &message, group).await?,
         Commands::Chat { group } => interactive::run_chat(paths, config, group).await?,
         Commands::Gateway { action } => match action {
             GatewayAction::Start => serve(paths, config).await?,
         },
-        Commands::Skills { command } => {
-            cmd_skills(&paths, &config, command).await?
-        }
+        Commands::Skills { command } => cmd_skills(&paths, &config, command).await?,
         Commands::Channel { command } => cmd_channel(paths, config, command).await?,
         Commands::Pairing { command } => cmd_pairing(&paths, command).await?,
         Commands::Schedule { command } => cmd_schedule(&paths, command).await?,
@@ -209,7 +217,11 @@ fn copy_tree(src: &std::path::Path, dst: &std::path::Path) -> anyhow::Result<()>
 async fn cmd_doctor(paths: &BobaPaths, config: &BobaConfig) -> anyhow::Result<()> {
     println!("BobaClaw doctor");
     println!("  home: {}", paths.home.display());
-    println!("  config: {} ({})", paths.config.display(), paths.config.exists());
+    println!(
+        "  config: {} ({})",
+        paths.config.display(),
+        paths.config.exists()
+    );
     println!("  state.db: {}", paths.state_db.display());
 
     match config.resolve_api_key() {
@@ -220,11 +232,11 @@ async fn cmd_doctor(paths: &BobaPaths, config: &BobaConfig) -> anyhow::Result<()
         Err(e) => println!("  api key: MISSING — {e}"),
     }
 
-    println!("  provider: {} model={}", config.provider.base_url, config.provider.model);
     println!(
-        "  llm timeout: {}s",
-        config.provider.request_timeout_secs
+        "  provider: {} model={}",
+        config.provider.base_url, config.provider.model
     );
+    println!("  llm timeout: {}s", config.provider.request_timeout_secs);
     let backend = match config.executor.backend {
         ExecutorBackend::Bubblewrap => "bubblewrap",
         ExecutorBackend::Docker => "docker",
@@ -253,10 +265,7 @@ async fn cmd_doctor(paths: &BobaPaths, config: &BobaConfig) -> anyhow::Result<()
         let docker = check_docker_sandbox(&paths.home, &config.executor);
         println!(
             "  docker: found={} daemon={} container_running={} — {}",
-            docker.docker_found,
-            docker.daemon_ok,
-            docker.container_running,
-            docker.message
+            docker.docker_found, docker.daemon_ok, docker.container_running, docker.message
         );
         println!(
             "  docker config: image={} container={}",
@@ -303,10 +312,7 @@ async fn cmd_doctor(paths: &BobaPaths, config: &BobaConfig) -> anyhow::Result<()
         let hub = bobaclaw_mcp::McpHub::connect(&config.mcp_servers).await;
         for st in hub.statuses(&config.mcp_servers) {
             if st.connected {
-                println!(
-                    "  mcp {}: OK, {} tool(s)",
-                    st.name, st.tool_count
-                );
+                println!("  mcp {}: OK, {} tool(s)", st.name, st.tool_count);
             } else {
                 let err = st.error.unwrap_or_else(|| "connect failed".into());
                 println!("  mcp {}: FAIL — {err}", st.name);
@@ -398,11 +404,10 @@ async fn cmd_agent(
 ) -> anyhow::Result<()> {
     let agent_group = group.unwrap_or_else(|| config.default_agent_group.clone());
     let req = NormalizedRequest::cli(message, &agent_group);
-    let dispatcher =
-        bobaclaw_agent::AgentDispatcher::new(paths.clone(), config.clone()).await?;
+    let dispatcher = bobaclaw_agent::AgentDispatcher::new(paths.clone(), config.clone()).await?;
     let resp = dispatcher.handle(req).await?;
-    let color = std::env::var("NO_COLOR").is_err()
-        && std::io::IsTerminal::is_terminal(&std::io::stdout());
+    let color =
+        std::env::var("NO_COLOR").is_err() && std::io::IsTerminal::is_terminal(&std::io::stdout());
     for line in terminal_md::render_markdown_lines(&resp.text, color) {
         println!("{line}");
     }
@@ -441,7 +446,9 @@ async fn cmd_skills(
         }
         SkillsCommand::View { name } => {
             let reg = SkillRegistry::load(&ws)?;
-            let s = reg.get(&name).ok_or_else(|| anyhow::anyhow!("skill not found"))?;
+            let s = reg
+                .get(&name)
+                .ok_or_else(|| anyhow::anyhow!("skill not found"))?;
             let state = SkillStateStore::load(&ws)?;
             let rec = state.record(&name);
             let status = if rec.enabled { "enabled" } else { "disabled" };

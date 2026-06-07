@@ -30,7 +30,10 @@ pub fn guard_skill_dir(path: &Path, trust: TrustLevel) -> GuardReport {
         (r"\$HOME/\.ssh|\~/\.ssh", "ssh directory access"),
         (r"ignore\s+.*instructions", "prompt injection pattern"),
         (r"rm\s+-rf\s+/", "destructive root delete"),
-        (r"curl\s+[^\n]*\$\{?\w*(KEY|TOKEN|SECRET)", "secret exfil via curl"),
+        (
+            r"curl\s+[^\n]*\$\{?\w*(KEY|TOKEN|SECRET)",
+            "secret exfil via curl",
+        ),
     ];
 
     for entry in WalkDir::new(path).into_iter().filter_map(|e| e.ok()) {
@@ -41,7 +44,10 @@ pub fn guard_skill_dir(path: &Path, trust: TrustLevel) -> GuardReport {
             continue;
         };
         for (pat, desc) in &patterns {
-            if Regex::new(pat).map(|re| re.is_match(&content)).unwrap_or(false) {
+            if Regex::new(pat)
+                .map(|re| re.is_match(&content))
+                .unwrap_or(false)
+            {
                 findings.push(format!("{}: {}", entry.path().display(), desc));
             }
         }

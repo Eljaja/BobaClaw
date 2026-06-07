@@ -163,7 +163,10 @@ pub fn strip_summary_prefix(content: &str) -> String {
     if let Some(rest) = s.strip_prefix(LEGACY) {
         s = rest.trim();
         if let Some(after) = s.strip_prefix("Treat as background only") {
-            return after.trim().trim_start_matches(|c| c == ' ' || c == ';' || c == ':').to_string();
+            return after
+                .trim()
+                .trim_start_matches(|c| c == ' ' || c == ';' || c == ':')
+                .to_string();
         }
     }
     s.to_string()
@@ -242,9 +245,7 @@ pub fn build_system_prompt(
 
     if !context_sections.is_empty() {
         parts.push_str("\n\n# Project Context\n\n");
-        parts.push_str(
-            "The following workspace files are loaded and must be followed:\n\n",
-        );
+        parts.push_str("The following workspace files are loaded and must be followed:\n\n");
         parts.push_str(&context_sections.join("\n\n"));
     }
 
@@ -284,7 +285,10 @@ fn load_memory_dir(workspace: &Path) -> Vec<String> {
         if budget == 0 {
             break;
         }
-        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("memory");
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("memory");
         let rel = format!("memory/{name}");
         let Ok(body) = std::fs::read_to_string(&path) else {
             continue;

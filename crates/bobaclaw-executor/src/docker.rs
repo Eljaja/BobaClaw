@@ -205,10 +205,7 @@ mod tests {
     fn container_workdir_group() {
         let root = PathBuf::from("/home/user/.bobaclaw/workspace");
         let group = root.join("home");
-        assert_eq!(
-            container_workdir(&root, &group).unwrap(),
-            "/workspace/home"
-        );
+        assert_eq!(container_workdir(&root, &group).unwrap(), "/workspace/home");
     }
 
     #[test]

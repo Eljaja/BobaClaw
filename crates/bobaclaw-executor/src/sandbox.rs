@@ -159,20 +159,12 @@ pub fn append_sandbox_args(cmd: &mut Command, profile: &ExecutorProfile, workspa
     let apt_dropin = root.join(APT_DROPIN_NAME);
     if apt_dropin.exists() {
         let guest = format!("/etc/apt/apt.conf.d/{APT_DROPIN_NAME}");
-        cmd.args([
-            "--bind",
-            apt_dropin.to_str().unwrap(),
-            guest.as_str(),
-        ]);
+        cmd.args(["--bind", apt_dropin.to_str().unwrap(), guest.as_str()]);
     }
 
     cmd.args(["--setenv", "HOME", "/home/sandbox"]);
     cmd.args(["--setenv", "TMPDIR", "/tmp"]);
-    cmd.args([
-        "--setenv",
-        "DEBIAN_FRONTEND",
-        "noninteractive",
-    ]);
+    cmd.args(["--setenv", "DEBIAN_FRONTEND", "noninteractive"]);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

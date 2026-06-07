@@ -20,7 +20,11 @@ pub struct RunArtifacts {
 }
 
 impl RunArtifacts {
-    pub fn prepare(run_dir: &Path, script: &str, manifest: &CommandCapsuleManifest) -> anyhow::Result<Self> {
+    pub fn prepare(
+        run_dir: &Path,
+        script: &str,
+        manifest: &CommandCapsuleManifest,
+    ) -> anyhow::Result<Self> {
         std::fs::create_dir_all(run_dir)?;
         let script_path = run_dir.join("script.sh");
         std::fs::write(&script_path, script)?;
@@ -39,7 +43,12 @@ impl RunArtifacts {
         })
     }
 
-    pub fn write_result(&self, exit_code: i32, stdout: &str, stderr: &str) -> anyhow::Result<ExecutionResult> {
+    pub fn write_result(
+        &self,
+        exit_code: i32,
+        stdout: &str,
+        stderr: &str,
+    ) -> anyhow::Result<ExecutionResult> {
         let stdout_path = self.run_dir.join("stdout.log");
         let stderr_path = self.run_dir.join("stderr.log");
         std::fs::write(&stdout_path, stdout)?;

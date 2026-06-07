@@ -100,13 +100,11 @@ impl<'a> ScheduledTaskStore<'a> {
 
     pub async fn mark_done(&self, id: &str) -> anyhow::Result<()> {
         let now = Utc::now().timestamp_millis() as f64 / 1000.0;
-        sqlx::query(
-            "UPDATE scheduled_tasks SET status = 'done', completed_at = ?1 WHERE id = ?2",
-        )
-        .bind(now)
-        .bind(id)
-        .execute(self.pool)
-        .await?;
+        sqlx::query("UPDATE scheduled_tasks SET status = 'done', completed_at = ?1 WHERE id = ?2")
+            .bind(now)
+            .bind(id)
+            .execute(self.pool)
+            .await?;
         Ok(())
     }
 

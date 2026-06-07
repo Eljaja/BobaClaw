@@ -115,9 +115,9 @@ docker-build: ## Build bobaclaw + sandbox images (BOBACLAW_IMAGE=… BOBACLAW_SA
 	BOBACLAW_IMAGE=$(BOBACLAW_IMAGE) BOBACLAW_SANDBOX_IMAGE=$(BOBACLAW_SANDBOX_IMAGE) \
 		./scripts/docker-prod-build.sh
 
-docker-up: docker-env ## Start production stack (detached)
-	BOBACLAW_IMAGE=$(BOBACLAW_IMAGE) BOBACLAW_SANDBOX_IMAGE=$(BOBACLAW_SANDBOX_IMAGE) \
-		$(COMPOSE) up -d --build
+docker-up: docker-env ## Start production stack (gateway + scheduler + telegram)
+	DEPLOY_PATH=$$(pwd) BOBACLAW_IMAGE=$(BOBACLAW_IMAGE) BOBACLAW_SANDBOX_IMAGE=$(BOBACLAW_SANDBOX_IMAGE) \
+		./scripts/docker-prod-deploy.sh
 
 docker-down: ## Stop production stack
 	$(COMPOSE) down

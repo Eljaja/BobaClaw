@@ -120,7 +120,8 @@ async fn shutdown_signal() {
         use tokio::signal::unix::{signal, SignalKind};
         let mut term =
             signal(SignalKind::terminate()).expect("install SIGTERM handler for scheduler");
-        let mut int = signal(SignalKind::interrupt()).expect("install SIGINT handler for scheduler");
+        let mut int =
+            signal(SignalKind::interrupt()).expect("install SIGINT handler for scheduler");
         tokio::select! {
             _ = term.recv() => {}
             _ = int.recv() => {}
@@ -238,10 +239,7 @@ async fn run_due_cron(
 
         let window = chrono::Duration::seconds(config.scheduler.tick_secs as i64 + 2);
         let window_start = now - window;
-        let fire_in_window = schedule
-            .after(&window_start)
-            .take(4)
-            .find(|t| *t <= now);
+        let fire_in_window = schedule.after(&window_start).take(4).find(|t| *t <= now);
 
         let Some(fire_at) = fire_in_window else {
             continue;
@@ -272,14 +270,9 @@ async fn run_due_cron(
         match dispatcher.handle(req).await {
             Ok(resp) => {
                 if let Some(d) = deliver {
-                    if let Err(e) = deliver_message(
-                        config,
-                        &paths.home,
-                        &d.channel,
-                        Some(&d.peer),
-                        &resp.text,
-                    )
-                    .await
+                    if let Err(e) =
+                        deliver_message(config, &paths.home, &d.channel, Some(&d.peer), &resp.text)
+                            .await
                     {
                         warn!("cron {} deliver: {e}", job.id);
                     }

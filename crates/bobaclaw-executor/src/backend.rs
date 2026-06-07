@@ -36,11 +36,7 @@ impl SandboxExecutor {
     }
 }
 
-fn prepare_command(
-    executor: &ExecutorConfig,
-    profile: &ExecutorProfile,
-    command: &str,
-) -> String {
+fn prepare_command(executor: &ExecutorConfig, profile: &ExecutorProfile, command: &str) -> String {
     match executor.backend {
         ExecutorBackend::Docker if executor.network => {
             adapt_command_for_sandbox(command, SandboxCommandMode::Docker)

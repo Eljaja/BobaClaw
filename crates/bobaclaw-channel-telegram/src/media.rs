@@ -74,13 +74,7 @@ pub async fn download_message_media(
     if let Some(voice) = &msg.voice {
         let dest = dir.join("voice.ogg");
         if let Some(path) = api.download_to_path(&voice.file_id, &dest, ".ogg").await {
-            push_downloaded(
-                &mut out,
-                &dir,
-                path,
-                "voice",
-                Some("voice.ogg".into()),
-            );
+            push_downloaded(&mut out, &dir, path, "voice", Some("voice.ogg".into()));
         }
     }
 
@@ -207,13 +201,7 @@ mod tests {
         let dir = PathBuf::from("/ws/home/inbox/telegram/42/99");
         let host = dir.join("result.json");
         let mut out = Vec::new();
-        push_downloaded(
-            &mut out,
-            &dir,
-            host,
-            "document",
-            Some("result.json".into()),
-        );
+        push_downloaded(&mut out, &dir, host, "document", Some("result.json".into()));
         assert_eq!(out[0].workspace_rel, "inbox/telegram/42/99/result.json");
     }
 }

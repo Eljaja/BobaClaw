@@ -80,13 +80,9 @@ pub async fn run_telegram_polling(
                 &inbound.peer,
             );
 
-            if let Some((reply, stop_only)) = handle_slash_command(
-                &state,
-                &inbound,
-                &agent_group,
-                bot_username.as_deref(),
-            )
-            .await?
+            if let Some((reply, stop_only)) =
+                handle_slash_command(&state, &inbound, &agent_group, bot_username.as_deref())
+                    .await?
             {
                 if stop_only {
                     let scope = NormalizedRequest::telegram(
@@ -203,11 +199,7 @@ async fn run_agent_turn(
     Ok(())
 }
 
-async fn check_trust(
-    config: &BobaConfig,
-    state: &StateDb,
-    inbound: &InboundMessage,
-) -> bool {
+async fn check_trust(config: &BobaConfig, state: &StateDb, inbound: &InboundMessage) -> bool {
     let tg = &config.channels.telegram;
     let pairing = PairingStore::new(state.pool());
 
@@ -232,11 +224,7 @@ async fn check_trust(
             None
         } else {
             let code = pairing
-                .create_or_get_pending(
-                    "telegram",
-                    &peer_key,
-                    inbound.user_name.as_deref(),
-                )
+                .create_or_get_pending("telegram", &peer_key, inbound.user_name.as_deref())
                 .await
                 .ok();
             code

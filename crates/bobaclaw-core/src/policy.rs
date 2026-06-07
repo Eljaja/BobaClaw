@@ -31,9 +31,7 @@ pub fn evaluate_telegram_trust(
     match input.chat_kind {
         ChatKind::Private => evaluate_dm(cfg, input.user_id, pairing_code),
         ChatKind::Channel => TrustDecision::Deny,
-        ChatKind::Group | ChatKind::Supergroup => {
-            evaluate_group(cfg, input, pairing_code)
-        }
+        ChatKind::Group | ChatKind::Supergroup => evaluate_group(cfg, input, pairing_code),
     }
 }
 

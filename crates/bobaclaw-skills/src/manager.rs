@@ -82,7 +82,9 @@ impl SkillManager {
     }
 
     pub fn edit(&self, name: &str, content: &str) -> Result<String, String> {
-        let dir = self.find_skill_dir(name).ok_or_else(|| format!("Skill '{name}' not found."))?;
+        let dir = self
+            .find_skill_dir(name)
+            .ok_or_else(|| format!("Skill '{name}' not found."))?;
         if let Some(e) = validate_frontmatter(content) {
             return Err(e);
         }
@@ -102,7 +104,9 @@ impl SkillManager {
         new_string: &str,
         file_path: Option<&str>,
     ) -> Result<String, String> {
-        let dir = self.find_skill_dir(name).ok_or_else(|| format!("Skill '{name}' not found."))?;
+        let dir = self
+            .find_skill_dir(name)
+            .ok_or_else(|| format!("Skill '{name}' not found."))?;
         let rel = file_path.unwrap_or("SKILL.md");
         if rel != "SKILL.md" {
             if let Some(e) = validate_support_path(rel) {
@@ -138,7 +142,9 @@ impl SkillManager {
         file_path: &str,
         file_content: &str,
     ) -> Result<String, String> {
-        let dir = self.find_skill_dir(name).ok_or_else(|| format!("Skill '{name}' not found."))?;
+        let dir = self
+            .find_skill_dir(name)
+            .ok_or_else(|| format!("Skill '{name}' not found."))?;
         if let Some(e) = validate_support_path(file_path) {
             return Err(e);
         }
@@ -156,7 +162,9 @@ impl SkillManager {
     }
 
     pub fn remove_file(&self, name: &str, file_path: &str) -> Result<String, String> {
-        let dir = self.find_skill_dir(name).ok_or_else(|| format!("Skill '{name}' not found."))?;
+        let dir = self
+            .find_skill_dir(name)
+            .ok_or_else(|| format!("Skill '{name}' not found."))?;
         if file_path == "SKILL.md" {
             return Err("Cannot remove SKILL.md; use delete to remove the whole skill.".into());
         }
@@ -178,7 +186,9 @@ impl SkillManager {
                 "Skill '{name}' is pinned and cannot be deleted. Disable it instead."
             ));
         }
-        let dir = self.find_skill_dir(name).ok_or_else(|| format!("Skill '{name}' not found."))?;
+        let dir = self
+            .find_skill_dir(name)
+            .ok_or_else(|| format!("Skill '{name}' not found."))?;
         std::fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
         let mut state = state;
         state.remove(name).map_err(|e| e.to_string())?;
@@ -186,7 +196,9 @@ impl SkillManager {
     }
 
     pub fn view(&self, name: &str) -> Result<String, String> {
-        let dir = self.find_skill_dir(name).ok_or_else(|| format!("Skill '{name}' not found."))?;
+        let dir = self
+            .find_skill_dir(name)
+            .ok_or_else(|| format!("Skill '{name}' not found."))?;
         let content = std::fs::read_to_string(dir.join("SKILL.md")).map_err(|e| e.to_string())?;
         let mut state = SkillStateStore::load(&self.workspace).map_err(|e| e.to_string())?;
         state.bump_view(name).ok();

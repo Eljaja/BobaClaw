@@ -43,21 +43,20 @@ impl<'a> RunLedger<'a> {
         .bind(now)
         .execute(self.pool)
         .await?;
-        self.append_event(run_id, RunEventKind::Created, None).await?;
+        self.append_event(run_id, RunEventKind::Created, None)
+            .await?;
         Ok(())
     }
 
     pub async fn set_capsule_dir(&self, run_id: &str, dir: &str) -> anyhow::Result<()> {
         let now = now_secs();
-        sqlx::query(
-            "UPDATE runs SET status = ?1, capsule_dir = ?2, updated_at = ?3 WHERE id = ?4",
-        )
-        .bind(status_str(RunStatus::ScriptSaved))
-        .bind(dir)
-        .bind(now)
-        .bind(run_id)
-        .execute(self.pool)
-        .await?;
+        sqlx::query("UPDATE runs SET status = ?1, capsule_dir = ?2, updated_at = ?3 WHERE id = ?4")
+            .bind(status_str(RunStatus::ScriptSaved))
+            .bind(dir)
+            .bind(now)
+            .bind(run_id)
+            .execute(self.pool)
+            .await?;
         self.append_event(
             run_id,
             RunEventKind::ScriptSaved,
@@ -110,15 +109,13 @@ impl<'a> RunLedger<'a> {
 
     pub async fn mark_denied(&self, run_id: &str, reason: &str) -> anyhow::Result<()> {
         let now = now_secs();
-        sqlx::query(
-            "UPDATE runs SET status = ?1, summary = ?2, updated_at = ?3 WHERE id = ?4",
-        )
-        .bind(status_str(RunStatus::Denied))
-        .bind(reason)
-        .bind(now)
-        .bind(run_id)
-        .execute(self.pool)
-        .await?;
+        sqlx::query("UPDATE runs SET status = ?1, summary = ?2, updated_at = ?3 WHERE id = ?4")
+            .bind(status_str(RunStatus::Denied))
+            .bind(reason)
+            .bind(now)
+            .bind(run_id)
+            .execute(self.pool)
+            .await?;
         self.append_event(
             run_id,
             RunEventKind::Denied,
@@ -148,21 +145,24 @@ impl<'a> RunLedger<'a> {
     }
 
     pub async fn get_run(&self, run_id: &str) -> anyhow::Result<Option<RunRecord>> {
-        let row = sqlx::query_as::<_, (String, String, Option<String>, Option<i32>, Option<String>)>(
-            "SELECT id, status, capsule_dir, exit_code, summary FROM runs WHERE id = ?1",
-        )
-        .bind(run_id)
-        .fetch_optional(self.pool)
-        .await?;
+        let row =
+            sqlx::query_as::<_, (String, String, Option<String>, Option<i32>, Option<String>)>(
+                "SELECT id, status, capsule_dir, exit_code, summary FROM runs WHERE id = ?1",
+            )
+            .bind(run_id)
+            .fetch_optional(self.pool)
+            .await?;
 
-        Ok(row.map(|(id, status, capsule_dir, exit_code, summary)| RunRecord {
-            id,
-            status: parse_status(&status),
-            executor_profile: String::new(),
-            capsule_dir,
-            exit_code,
-            summary,
-        }))
+        Ok(
+            row.map(|(id, status, capsule_dir, exit_code, summary)| RunRecord {
+                id,
+                status: parse_status(&status),
+                executor_profile: String::new(),
+                capsule_dir,
+                exit_code,
+                summary,
+            }),
+        )
     }
 
     async fn update_status(

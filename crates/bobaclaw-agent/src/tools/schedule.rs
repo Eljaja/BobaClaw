@@ -70,8 +70,8 @@ pub async fn handle_schedule_tool(
         anyhow::bail!("prompt is empty");
     }
 
-    let run_at = (Utc::now() + Duration::seconds(args.delay_seconds as i64))
-        .timestamp_millis() as f64
+    let run_at = (Utc::now() + Duration::seconds(args.delay_seconds as i64)).timestamp_millis()
+        as f64
         / 1000.0;
 
     let (deliver_channel, deliver_peer) = deliver_target(req);

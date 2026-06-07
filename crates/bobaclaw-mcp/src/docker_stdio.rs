@@ -13,12 +13,7 @@ pub fn mcp_container_name(server_name: &str) -> String {
 /// Remove MCP containers left behind when a BobaClaw process died without dropping McpHub.
 pub fn cleanup_stale_mcp_containers() {
     let Ok(out) = StdCommand::new("docker")
-        .args([
-            "ps",
-            "-aq",
-            "--filter",
-            &format!("label={MCP_LABEL}"),
-        ])
+        .args(["ps", "-aq", "--filter", &format!("label={MCP_LABEL}")])
         .output()
     else {
         return;

@@ -1,8 +1,6 @@
 //! Markdown → ANSI for terminal output (chat REPL, one-shot agent).
 
-use pulldown_cmark::{
-    CodeBlockKind, Event, Options, Parser, Tag, TagEnd,
-};
+use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
 
 const RESET: &str = "\x1b[0m";
 
@@ -16,12 +14,22 @@ const STYLE_H3: Style = Style { open: "\x1b[1;2m" };
 const STYLE_H4: Style = Style { open: "\x1b[1m" };
 const STRONG: Style = Style { open: "\x1b[1m" };
 const EMPH: Style = Style { open: "\x1b[3m" };
-const CODE: Style = Style { open: "\x1b[38;5;251m\x1b[48;5;236m" };
+const CODE: Style = Style {
+    open: "\x1b[38;5;251m\x1b[48;5;236m",
+};
 const LINK: Style = Style { open: "\x1b[4;36m" };
-const QUOTE: Style = Style { open: "\x1b[2;38;5;245m" };
-const CODE_BLOCK: Style = Style { open: "\x1b[38;5;252m\x1b[48;5;236m" };
-const RULE: Style = Style { open: "\x1b[2;38;5;238m" };
-const META: Style = Style { open: "\x1b[2;38;5;240m" };
+const QUOTE: Style = Style {
+    open: "\x1b[2;38;5;245m",
+};
+const CODE_BLOCK: Style = Style {
+    open: "\x1b[38;5;252m\x1b[48;5;236m",
+};
+const RULE: Style = Style {
+    open: "\x1b[2;38;5;238m",
+};
+const META: Style = Style {
+    open: "\x1b[2;38;5;240m",
+};
 
 /// Render markdown into logical lines (may contain ANSI escapes when `color` is true).
 pub fn render_markdown_lines(markdown: &str, color: bool) -> Vec<String> {
@@ -124,8 +132,7 @@ impl Renderer {
                 self.code_block_buf.clear();
                 if let CodeBlockKind::Fenced(lang) = kind {
                     if !lang.is_empty() {
-                        self.code_block_buf
-                            .push_str(&format!("// {lang}\n"));
+                        self.code_block_buf.push_str(&format!("// {lang}\n"));
                     }
                 }
             }
@@ -207,11 +214,7 @@ impl Renderer {
 
     fn flush_code_block(&mut self) {
         self.in_code_block = false;
-        let block: Vec<String> = self
-            .code_block_buf
-            .lines()
-            .map(|s| s.to_string())
-            .collect();
+        let block: Vec<String> = self.code_block_buf.lines().map(|s| s.to_string()).collect();
         self.code_block_buf.clear();
         for line in block {
             self.push_line_styled(&line, &CODE_BLOCK);
@@ -223,11 +226,7 @@ impl Renderer {
             self.code_block_buf.push_str(text);
             return;
         }
-        let quote = if self.quote_depth > 0 {
-            "│ "
-        } else {
-            ""
-        };
+        let quote = if self.quote_depth > 0 { "│ " } else { "" };
         if !quote.is_empty() && self.line.is_empty() {
             self.line.push_str(quote);
         }

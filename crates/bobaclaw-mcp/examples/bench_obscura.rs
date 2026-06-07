@@ -13,7 +13,9 @@ fn bench_url() -> String {
 }
 
 fn bench_wait_until() -> Option<String> {
-    std::env::var("MCP_BENCH_WAIT_UNTIL").ok().filter(|s| !s.is_empty())
+    std::env::var("MCP_BENCH_WAIT_UNTIL")
+        .ok()
+        .filter(|s| !s.is_empty())
 }
 
 #[tokio::main]

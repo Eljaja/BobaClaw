@@ -50,9 +50,7 @@ fn default_mcp_connect_timeout_secs() -> u64 {
 impl McpServerConfig {
     /// True when this entry uses streamable HTTP instead of a stdio subprocess.
     pub fn uses_http(&self) -> bool {
-        self.url
-            .as_deref()
-            .is_some_and(|u| !u.trim().is_empty())
+        self.url.as_deref().is_some_and(|u| !u.trim().is_empty())
     }
 
     pub fn resolve_env(&self) -> HashMap<String, String> {

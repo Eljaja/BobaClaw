@@ -19,9 +19,12 @@ impl<'a> SessionStore<'a> {
             return Ok(sid.clone());
         }
         if let Some(ref peer) = req.channel_peer {
-            return self.get_or_create_routed(peer, &req.agent_group, req.ingress).await;
+            return self
+                .get_or_create_routed(peer, &req.agent_group, req.ingress)
+                .await;
         }
-        self.get_or_create_for_ingress(&req.agent_group, req.ingress).await
+        self.get_or_create_for_ingress(&req.agent_group, req.ingress)
+            .await
     }
 
     pub async fn get_or_create_routed(
@@ -32,12 +35,11 @@ impl<'a> SessionStore<'a> {
     ) -> anyhow::Result<String> {
         let routes = RouteStore::new(self.pool);
         if let Some(sid) = routes.get_session_id(peer).await? {
-            let active: Option<String> = sqlx::query_scalar(
-                "SELECT id FROM sessions WHERE id = ?1 AND ended_at IS NULL",
-            )
-            .bind(&sid)
-            .fetch_optional(self.pool)
-            .await?;
+            let active: Option<String> =
+                sqlx::query_scalar("SELECT id FROM sessions WHERE id = ?1 AND ended_at IS NULL")
+                    .bind(&sid)
+                    .fetch_optional(self.pool)
+                    .await?;
             if active.is_some() {
                 return Ok(sid);
             }
@@ -45,7 +47,8 @@ impl<'a> SessionStore<'a> {
 
         let source = ingress_source(ingress);
         let user_id = peer.peer.as_str();
-        let session_id = create_session_for_route(self.pool, &source, agent_group, Some(user_id)).await?;
+        let session_id =
+            create_session_for_route(self.pool, &source, agent_group, Some(user_id)).await?;
         routes.upsert(peer, agent_group, &session_id).await?;
         Ok(session_id)
     }
@@ -81,11 +84,9 @@ impl<'a> SessionStore<'a> {
         Ok(id)
     }
 
-    pub async fn get_or_create_cli(
-        &self,
-        agent_group: &str,
-    ) -> anyhow::Result<String> {
-        self.get_or_create_for_ingress(agent_group, IngressKind::Cli).await
+    pub async fn get_or_create_cli(&self, agent_group: &str) -> anyhow::Result<String> {
+        self.get_or_create_for_ingress(agent_group, IngressKind::Cli)
+            .await
     }
 
     pub async fn append_message(
@@ -105,12 +106,10 @@ impl<'a> SessionStore<'a> {
         .execute(self.pool)
         .await?;
 
-        sqlx::query(
-            "UPDATE sessions SET message_count = message_count + 1 WHERE id = ?1",
-        )
-        .bind(session_id)
-        .execute(self.pool)
-        .await?;
+        sqlx::query("UPDATE sessions SET message_count = message_count + 1 WHERE id = ?1")
+            .bind(session_id)
+            .execute(self.pool)
+            .await?;
         Ok(())
     }
 
@@ -150,7 +149,9 @@ impl<'a> SessionStore<'a> {
             ended = result.rows_affected();
         }
 
-        let new_id = self.get_or_create_routed(peer, agent_group, ingress).await?;
+        let new_id = self
+            .get_or_create_routed(peer, agent_group, ingress)
+            .await?;
         Ok((ended, new_id))
     }
 
@@ -169,10 +170,7 @@ impl<'a> SessionStore<'a> {
         Ok(rows.into_iter().rev().collect())
     }
 
-    pub async fn list_messages(
-        &self,
-        session_id: &str,
-    ) -> anyhow::Result<Vec<(String, String)>> {
+    pub async fn list_messages(&self, session_id: &str) -> anyhow::Result<Vec<(String, String)>> {
         let rows = sqlx::query_as::<_, (String, String)>(
             "SELECT role, COALESCE(content, '') FROM messages WHERE session_id = ?1 ORDER BY id ASC",
         )

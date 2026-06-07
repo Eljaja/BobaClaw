@@ -76,7 +76,9 @@ impl BwrapExecutor {
 
         match profile.kind {
             ProfileKind::HostDanger => {
-                anyhow::bail!("host-danger requires explicit approval; not implemented in this run path")
+                anyhow::bail!(
+                    "host-danger requires explicit approval; not implemented in this run path"
+                )
             }
             ProfileKind::BwrapDefault | ProfileKind::BwrapNetworked | ProfileKind::Readonly => {
                 Self::run_bwrap(profile, &artifacts)
@@ -88,7 +90,10 @@ impl BwrapExecutor {
         }
     }
 
-    fn run_bwrap(profile: &ExecutorProfile, artifacts: &RunArtifacts) -> anyhow::Result<ExecutionResult> {
+    fn run_bwrap(
+        profile: &ExecutorProfile,
+        artifacts: &RunArtifacts,
+    ) -> anyhow::Result<ExecutionResult> {
         let check = check_bwrap();
         if !check.user_ns_ok {
             anyhow::bail!("bubblewrap unavailable: {}", check.message);

@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
 use bobaclaw_core::{BobaConfig, BobaPaths, NormalizedRequest};
-use tokio_util::sync::CancellationToken;
 use bobaclaw_mcp::McpHub;
 use bobaclaw_skills::SkillRegistry;
 use bobaclaw_state::{SessionStore, StateDb};
+use tokio_util::sync::CancellationToken;
 
 use crate::progress::AgentProgress;
 use crate::review::{maybe_post_turn_skill_save, SkillSaveSource, TurnSkillMetrics};
@@ -65,8 +65,7 @@ impl AgentLoop {
             .append_message(&session_id, "user", &user_content)
             .await?;
 
-        let skills =
-            SkillRegistry::load_enabled(&self.paths.group_workspace(&req.agent_group))?;
+        let skills = SkillRegistry::load_enabled(&self.paths.group_workspace(&req.agent_group))?;
 
         let outcome = run_agent_turn(
             &self.paths,
@@ -86,36 +85,36 @@ impl AgentLoop {
             None
         } else {
             maybe_post_turn_skill_save(
-            &self.paths,
-            &self.config,
-            &self.state,
-            &req.agent_group,
-            &TurnSkillMetrics {
-                tool_call_count: outcome.tool_call_count,
-                skill_manage_used: outcome.skill_manage_used,
-            },
-            &outcome.review_snapshot,
-            outcome.last_run_id.as_deref(),
-        )
-        .await
-        .map(|saved| {
-            let note = match saved.source {
-                SkillSaveSource::BackgroundReview => {
-                    format!(
-                        "\n\n💾 Saved skill `{}` for reuse (background review).",
-                        saved.skill_name
-                    )
-                }
-                SkillSaveSource::ForgeAutoPromote => {
-                    format!(
-                        "\n\n💾 Saved skill `{}` for reuse (from successful run).",
-                        saved.skill_name
-                    )
-                }
-            };
-            reply_text.push_str(&note);
-            saved.skill_name
-        })
+                &self.paths,
+                &self.config,
+                &self.state,
+                &req.agent_group,
+                &TurnSkillMetrics {
+                    tool_call_count: outcome.tool_call_count,
+                    skill_manage_used: outcome.skill_manage_used,
+                },
+                &outcome.review_snapshot,
+                outcome.last_run_id.as_deref(),
+            )
+            .await
+            .map(|saved| {
+                let note = match saved.source {
+                    SkillSaveSource::BackgroundReview => {
+                        format!(
+                            "\n\n💾 Saved skill `{}` for reuse (background review).",
+                            saved.skill_name
+                        )
+                    }
+                    SkillSaveSource::ForgeAutoPromote => {
+                        format!(
+                            "\n\n💾 Saved skill `{}` for reuse (from successful run).",
+                            saved.skill_name
+                        )
+                    }
+                };
+                reply_text.push_str(&note);
+                saved.skill_name
+            })
         };
 
         sessions

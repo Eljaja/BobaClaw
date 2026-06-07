@@ -128,13 +128,15 @@ async fn handle_slash(
             let n = SessionStore::new(pool)
                 .end_active_cli_sessions(agent_group)
                 .await?;
-            let id = SessionStore::new(pool).get_or_create_cli(agent_group).await?;
-            Ok(Some(format!(
-                "Новая сессия ({n} закрыто). session={id}"
-            )))
+            let id = SessionStore::new(pool)
+                .get_or_create_cli(agent_group)
+                .await?;
+            Ok(Some(format!("Новая сессия ({n} закрыто). session={id}")))
         }
         "/session" => {
-            let id = SessionStore::new(pool).get_or_create_cli(agent_group).await?;
+            let id = SessionStore::new(pool)
+                .get_or_create_cli(agent_group)
+                .await?;
             Ok(Some(format!("session={id}")))
         }
         "/skills" => {
@@ -165,7 +167,9 @@ async fn handle_slash(
             }
         }
         "/compact" => {
-            let id = SessionStore::new(pool).get_or_create_cli(agent_group).await?;
+            let id = SessionStore::new(pool)
+                .get_or_create_cli(agent_group)
+                .await?;
             force_compact_session(pool, config, &id, None).await?;
             Ok(Some(
                 "Контекст сжат: в историю добавлено compaction-сообщение (как Hermes/OpenClaw)."

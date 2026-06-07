@@ -32,7 +32,9 @@ pub fn validate_category(category: Option<&str>) -> Option<String> {
         return None;
     }
     if category.contains('/') || category.contains('\\') {
-        return Some(format!("Invalid category '{category}'. Must be a single directory name."));
+        return Some(format!(
+            "Invalid category '{category}'. Must be a single directory name."
+        ));
     }
     validate_name(category)
 }
@@ -58,7 +60,10 @@ pub fn validate_frontmatter(content: &str) -> Option<String> {
     if !obj.contains_key("name") {
         return Some("Frontmatter must include 'name' field.".into());
     }
-    let desc = obj.get("description").and_then(|v| v.as_str()).unwrap_or("");
+    let desc = obj
+        .get("description")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     if desc.is_empty() {
         return Some("Frontmatter must include 'description' field.".into());
     }

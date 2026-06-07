@@ -2,7 +2,6 @@ use crate::progress::{emit, sanitize_status_text, AgentEvent, AgentProgress};
 use bobaclaw_core::{
     head_tail_with_hint, BobaConfig, BobaPaths, CommandCapsuleManifest, TurnInterrupted,
 };
-use tokio_util::sync::CancellationToken;
 use bobaclaw_executor::{ExecutorProfile, SandboxExecutor};
 use bobaclaw_provider::{FunctionSpec, ToolCall, ToolSpec};
 use bobaclaw_state::RunLedger;
@@ -10,6 +9,7 @@ use serde::Deserialize;
 use serde_json::json;
 use sqlx::SqlitePool;
 use std::path::{Path, PathBuf};
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 const TOOL_NAME: &str = "exec";
@@ -119,12 +119,7 @@ pub async fn handle_exec_tool(
     let ledger = RunLedger::new(pool);
 
     ledger
-        .create_run(
-            &run_id,
-            Some(session_id),
-            Some(request_id),
-            profile.id(),
-        )
+        .create_run(&run_id, Some(session_id), Some(request_id), profile.id())
         .await?;
     ledger
         .set_capsule_dir(&run_id, &run_dir.display().to_string())
@@ -288,7 +283,10 @@ fn normalize_workdir(workdir: &str, workspace: &Path) -> anyhow::Result<String> 
     }
 
     if w == "/workspace" || w.starts_with("/workspace/") {
-        let rel = w.strip_prefix("/workspace").unwrap_or(w).trim_start_matches('/');
+        let rel = w
+            .strip_prefix("/workspace")
+            .unwrap_or(w)
+            .trim_start_matches('/');
         return if rel.is_empty() {
             Ok(".".to_string())
         } else {
@@ -338,10 +336,7 @@ fn format_tool_result(
     exit_code: i32,
     summary: &str,
 ) -> String {
-    let artifact = format!(
-        "full output in {}",
-        run_dir.join("result.json").display()
-    );
+    let artifact = format!("full output in {}", run_dir.join("result.json").display());
     let output = if summary.chars().count() > MAX_TOOL_BODY_CHARS {
         head_tail_with_hint(summary, MAX_TOOL_BODY_CHARS, &artifact)
     } else {

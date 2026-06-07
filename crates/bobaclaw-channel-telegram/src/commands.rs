@@ -1,5 +1,8 @@
 /// Parse `/cmd` or `/cmd@botname` from a Telegram message.
-pub fn parse_slash_command<'a>(text: &'a str, bot_username: Option<&str>) -> Option<(&'a str, &'a str)> {
+pub fn parse_slash_command<'a>(
+    text: &'a str,
+    bot_username: Option<&str>,
+) -> Option<(&'a str, &'a str)> {
     let text = text.trim();
     if !text.starts_with('/') {
         return None;
@@ -43,7 +46,10 @@ mod tests {
             parse_slash_command("/new@bobaClawBot", Some("bobaClawBot")),
             Some(("new", ""))
         );
-        assert_eq!(parse_slash_command("/new@otherBot", Some("bobaClawBot")), None);
+        assert_eq!(
+            parse_slash_command("/new@otherBot", Some("bobaClawBot")),
+            None
+        );
     }
 
     #[test]

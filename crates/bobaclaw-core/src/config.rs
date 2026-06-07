@@ -273,9 +273,6 @@ mod tests {
         assert_eq!(loaded.executor.backend, ExecutorBackend::Docker);
         assert!(!loaded.executor.network);
         assert_eq!(loaded.executor.docker.image, "alpine:3.20");
-        assert_eq!(
-            loaded.executor.docker.container_name,
-            "bobaclaw-sandbox"
-        );
+        assert_eq!(loaded.executor.docker.container_name, "bobaclaw-sandbox");
     }
 }

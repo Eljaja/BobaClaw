@@ -5,7 +5,9 @@ use sqlx::SqlitePool;
 
 use crate::context::{estimate_tokens, transcript_lines};
 use crate::progress::{emit, AgentEvent, AgentProgress};
-use crate::prompt::{strip_summary_prefix, summarizer_user_message, SUMMARIZER_SYSTEM, SUMMARY_PREFIX};
+use crate::prompt::{
+    strip_summary_prefix, summarizer_user_message, SUMMARIZER_SYSTEM, SUMMARY_PREFIX,
+};
 
 fn last_compaction_index(rows: &[(String, String)]) -> Option<usize> {
     rows.iter()
@@ -66,7 +68,9 @@ pub async fn maybe_compact_session(
     let prev = previous_summary_body(&all);
     let summary = summarize_turns(config, to_summarize, prev.as_deref()).await?;
     let full = format!("{SUMMARY_PREFIX}{summary}");
-    sessions.append_message(session_id, "compaction", &full).await?;
+    sessions
+        .append_message(session_id, "compaction", &full)
+        .await?;
     Ok(true)
 }
 
@@ -88,7 +92,9 @@ pub async fn force_compact_session(
     let prev = previous_summary_body(&all);
     let summary = summarize_turns(config, to_summarize, prev.as_deref()).await?;
     let full = format!("{SUMMARY_PREFIX}{summary}");
-    sessions.append_message(session_id, "compaction", &full).await?;
+    sessions
+        .append_message(session_id, "compaction", &full)
+        .await?;
     Ok(full)
 }
 
@@ -107,9 +113,7 @@ async fn summarize_turns(
     client.complete_text(&messages, None).await
 }
 
-pub fn history_to_conversation(
-    rows: &[(String, String)],
-) -> Vec<ConversationMessage> {
+pub fn history_to_conversation(rows: &[(String, String)]) -> Vec<ConversationMessage> {
     rows.iter()
         .map(|(role, content)| {
             let api_role = match role.as_str() {
@@ -154,11 +158,7 @@ mod tests {
 
     #[test]
     fn effective_history_from_last_compaction() {
-        let all = rows(&[
-            ("user", "old"),
-            ("compaction", "sum1"),
-            ("user", "new"),
-        ]);
+        let all = rows(&[("user", "old"), ("compaction", "sum1"), ("user", "new")]);
         let eff = effective_history(&all);
         assert_eq!(eff.len(), 2);
         assert_eq!(eff[0].0, "compaction");

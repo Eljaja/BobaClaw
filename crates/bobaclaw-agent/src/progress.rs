@@ -106,10 +106,7 @@ pub fn format_step_block(event: &AgentEvent) -> String {
     match event {
         AgentEvent::LlmThinking { iteration } => format!("Thinking… (step {iteration})"),
         AgentEvent::ToolStart { name, label } => {
-            format!(
-                "Running {name}\n  $ {}",
-                sanitize_status_text(label, 120)
-            )
+            format!("Running {name}\n  $ {}", sanitize_status_text(label, 120))
         }
         AgentEvent::ToolEnd {
             name,

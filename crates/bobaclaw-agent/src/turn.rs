@@ -1,17 +1,15 @@
 use std::sync::Arc;
 
 use bobaclaw_core::{BobaConfig, BobaPaths, NormalizedRequest, TurnInterrupted};
-use tokio_util::sync::CancellationToken;
 use bobaclaw_mcp::McpHub;
-use bobaclaw_provider::{ConversationMessage, ToolChatClient, ToolCall, ToolSpec};
+use bobaclaw_provider::{ConversationMessage, ToolCall, ToolChatClient, ToolSpec};
 use bobaclaw_skills::SkillRegistry;
 use bobaclaw_state::SessionStore;
 use sqlx::SqlitePool;
+use tokio_util::sync::CancellationToken;
 
 use crate::cancel::{check_cancel, interrupted_reply};
-use crate::compaction::{
-    effective_history, history_to_conversation, maybe_compact_session,
-};
+use crate::compaction::{effective_history, history_to_conversation, maybe_compact_session};
 use crate::progress::{emit, AgentEvent, AgentProgress};
 use crate::prompt::build_system_prompt;
 use crate::review::build_review_snapshot;
@@ -308,13 +306,12 @@ pub async fn run_agent_turn(
         } else {
             SUMMARY_RESPONSE_NUDGE
         };
-        let retry_tools = if (requires_action && !executed)
-            || messages.iter().any(|m| m.role == "tool")
-        {
-            tools.as_slice()
-        } else {
-            &[]
-        };
+        let retry_tools =
+            if (requires_action && !executed) || messages.iter().any(|m| m.role == "tool") {
+                tools.as_slice()
+            } else {
+                &[]
+            };
         messages.push(ConversationMessage::user(nudge));
         emit(
             progress,

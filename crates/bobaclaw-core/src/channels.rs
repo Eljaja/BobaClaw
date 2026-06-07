@@ -214,9 +214,6 @@ mod tests {
     fn resolve_proxy_prefers_inline_url() {
         let mut c = TelegramConfig::default();
         c.proxy_url = "http://127.0.0.1:7890".into();
-        assert_eq!(
-            c.resolve_proxy().as_deref(),
-            Some("http://127.0.0.1:7890")
-        );
+        assert_eq!(c.resolve_proxy().as_deref(), Some("http://127.0.0.1:7890"));
     }
 }
