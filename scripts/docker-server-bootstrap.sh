@@ -33,8 +33,12 @@ if [ ! -f docker/.env ]; then
   echo "created $DEPLOY_PATH/docker/.env — edit secrets before first start"
 fi
 
+mkdir -p "$DEPLOY_PATH/data"
+echo "data dir: $DEPLOY_PATH/data (config.yaml, workspace, state.db)"
+
 echo "bootstrap done: $DEPLOY_PATH"
 echo "Next on server:"
 echo "  1. edit docker/.env (OPENAI_API_KEY, TELEGRAM_BOT_TOKEN)"
-echo "  2. set GitHub secrets: DEPLOY_HOST, DEPLOY_USER, DEPLOY_SSH_KEY, DEPLOY_PATH=$DEPLOY_PATH"
-echo "  3. push to main → workflow builds images and runs docker compose up -d"
+echo "  2. install a self-hosted Actions runner on this host (label: self-hosted)"
+echo "  3. optional GitHub repo variables: SELF_HOSTED_RUNNER_LABEL, DEPLOY_PATH=$DEPLOY_PATH"
+echo "  4. push to main → workflow builds images in the cloud, deploy job runs here"

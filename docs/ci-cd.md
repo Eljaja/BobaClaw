@@ -32,14 +32,34 @@ Future: model-based regression evals on schedule or before release.
 
 ### 5. Release gate
 
-Existing `.github/workflows/deploy.yml` — build, push images, deploy on `main`. Release requires passing tests and operator review for risky capability changes.
+`.github/workflows/deploy.yml` — build and push images on GitHub-hosted runners, then **deploy on a self-hosted runner** in the homelab LAN (`runs-on: self-hosted` by default). Release requires passing tests and operator review for risky capability changes.
+
+## Homelab self-hosted runner
+
+The `deploy` job does not SSH from the cloud. It runs on a [self-hosted runner](https://docs.github.com/en/actions/hosting-your-own-runners) installed on the deploy host (for example `192.168.88.220`).
+
+| Setting | Where | Default |
+|---------|-------|---------|
+| Runner label | GitHub → Settings → Variables → `SELF_HOSTED_RUNNER_LABEL` | `self-hosted` |
+| Deploy directory | GitHub → Settings → Variables → `DEPLOY_PATH` | `/opt/bobaclaw` |
+
+When registering the runner, keep the `self-hosted` label or set `SELF_HOSTED_RUNNER_LABEL` to match your custom labels (for example `homelab`).
+
+The runner host needs:
+
+- outbound HTTPS to `github.com` and `ghcr.io`;
+- Docker and `docker compose`;
+- a clone of this repo at `DEPLOY_PATH` with `docker/.env` secrets;
+- persistent data at `DEPLOY_PATH/data/` (bind-mounted to `/data` in the container: `config.yaml`, `state.db`, `workspace/`).
+
+No inbound SSH from the internet is required.
 
 ## Workflows
 
-| Workflow | Trigger | Purpose |
-|----------|---------|---------|
-| `ci.yml` | PR, push to `main` | Harness structure, secrets, Rust fmt/clippy/test |
-| `deploy.yml` | push to `main`, tags | Docker build + homelab deploy |
+| Workflow | Trigger | Runner | Purpose |
+|----------|---------|--------|---------|
+| `ci.yml` | PR, push to `main` | `ubuntu-latest` | Harness structure, secrets, Rust fmt/clippy/test |
+| `deploy.yml` | push to `main`, tags | `ubuntu-latest` (build) + **self-hosted** (deploy) | Docker build/push + homelab `compose up` |
 
 ## Agent-generated PR checks
 

@@ -13,6 +13,8 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
+  # Homelab runner label. Override in GitHub → Settings → Variables: SELF_HOSTED_RUNNER_LABEL
+  SELF_HOSTED_RUNNER_LABEL: self-hosted
 
 jobs:
   test:
@@ -91,29 +93,24 @@ jobs:
   deploy:
     needs: build-and-push
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.SELF_HOSTED_RUNNER_LABEL || env.SELF_HOSTED_RUNNER_LABEL }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Deploy over SSH
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
-          port: ${{ secrets.DEPLOY_SSH_PORT != '' && secrets.DEPLOY_SSH_PORT || '22' }}
-          script_stop: true
-          script: |
-            set -eu
-            DEPLOY_PATH="${{ secrets.DEPLOY_PATH }}"
-            DEPLOY_PATH="${DEPLOY_PATH:-/opt/bobaclaw}"
-            cd "$DEPLOY_PATH"
-            if [ -d .git ]; then
-              git pull --ff-only
-            fi
-            export BOBACLAW_IMAGE="${{ needs.build-and-push.outputs.bobaclaw_image }}"
-            export BOBACLAW_SANDBOX_IMAGE="${{ needs.build-and-push.outputs.sandbox_image }}"
-            docker compose -f docker-compose.prod.yml pull
-            docker compose -f docker-compose.prod.yml up -d --remove-orphans
-            docker compose -f docker-compose.prod.yml ps
-            docker compose -f docker-compose.prod.yml exec -T bobaclaw bobaclaw doctor || true
+      - name: Deploy on homelab runner
+        run: |
+          set -eu
+          DEPLOY_PATH="${DEPLOY_PATH:-/opt/bobaclaw}"
+          cd "$DEPLOY_PATH"
+          mkdir -p "$DEPLOY_PATH/data"
+          if [ -d .git ]; then
+            git pull --ff-only
+          fi
+          export BOBACLAW_IMAGE="${{ needs.build-and-push.outputs.bobaclaw_image }}"
+          export BOBACLAW_SANDBOX_IMAGE="${{ needs.build-and-push.outputs.sandbox_image }}"
+          docker compose -f docker-compose.prod.yml pull
+          docker compose -f docker-compose.prod.yml up -d --remove-orphans
+          docker compose -f docker-compose.prod.yml ps
+          docker compose -f docker-compose.prod.yml exec -T bobaclaw bobaclaw doctor || true
+        env:
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
