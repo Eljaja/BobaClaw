@@ -13,8 +13,6 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
-  # Homelab runner label. Override in GitHub → Settings → Variables: SELF_HOSTED_RUNNER_LABEL
-  SELF_HOSTED_RUNNER_LABEL: self-hosted
 
 jobs:
   test:
@@ -93,7 +91,7 @@ jobs:
   deploy:
     needs: build-and-push
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-    runs-on: ${{ vars.SELF_HOSTED_RUNNER_LABEL || env.SELF_HOSTED_RUNNER_LABEL }}
+    runs-on: ${{ vars.SELF_HOSTED_RUNNER_LABEL || 'self-hosted' }}
     steps:
       - uses: actions/checkout@v4
 

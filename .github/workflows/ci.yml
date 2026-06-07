@@ -5,10 +5,6 @@ on:
   push:
     branches: [main]
 
-env:
-  # Homelab runner label (deploy.yml). Override via repo variable SELF_HOSTED_RUNNER_LABEL.
-  SELF_HOSTED_RUNNER_LABEL: self-hosted
-
 jobs:
   harness-and-rust:
     runs-on: ubuntu-latest
