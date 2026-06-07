@@ -51,6 +51,7 @@ pub async fn serve(paths: BobaPaths, config: BobaConfig) -> anyhow::Result<()> {
         .route("/health", get(health))
         .route("/v1/chat/completions", post(chat_completions))
         .route("/api/agent", post(api_agent))
+        .route("/api/agent/interrupt", post(api_agent_interrupt))
         .with_state(state);
 
     spawn_embedded_scheduler(paths.clone(), config.clone(), Some(dispatcher.clone()));
@@ -161,6 +162,35 @@ async fn api_agent(
             run_id: None,
         }),
     }
+}
+
+#[derive(Debug, Deserialize)]
+struct ApiInterruptRequest {
+    #[serde(default)]
+    agent_group: Option<String>,
+    #[serde(default)]
+    scope: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct ApiInterruptResponse {
+    interrupted: bool,
+    scope: String,
+}
+
+async fn api_agent_interrupt(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<ApiInterruptRequest>,
+) -> Json<ApiInterruptResponse> {
+    let scope = body.scope.unwrap_or_else(|| {
+        format!(
+            "api:{}",
+            body.agent_group
+                .unwrap_or_else(|| state.config.default_agent_group.clone())
+        )
+    });
+    let interrupted = state.dispatcher.interrupt_scope(&scope).await;
+    Json(ApiInterruptResponse { interrupted, scope })
 }
 
 async fn run_agent(state: Arc<GatewayState>, req: NormalizedRequest) -> String {

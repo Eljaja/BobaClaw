@@ -1,0 +1,12 @@
+---
+description: Rust conventions for BobaClaw crates
+globs: crates/**/*.rs
+alwaysApply: false
+---
+
+# BobaClaw Rust
+
+- Match existing crate boundaries; prefer extending over new abstractions.
+- Gateway process must not run untrusted tools directly — use executor profiles (ADR 003).
+- Run `cargo fmt`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test` for touched crates.
+- Minimal diffs; no drive-by refactors in unrelated modules.

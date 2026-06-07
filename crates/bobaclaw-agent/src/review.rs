@@ -104,7 +104,7 @@ async fn run_background_skill_review(
     ];
 
     for _ in 0..MAX_REVIEW_ITERATIONS {
-        let turn = client.chat_turn(&messages, &tools, None).await.ok()?;
+        let turn = client.chat_turn(&messages, &tools, None, None).await.ok()?;
         let assistant = turn.message.clone();
         let tool_calls = assistant.tool_calls.clone();
         let assistant_text = assistant.text_content();

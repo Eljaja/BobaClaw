@@ -20,6 +20,8 @@ pub enum AgentEvent {
     AssistantChunk { text: String },
     /// Model ended the tool loop without user-visible text; asking again.
     EmptyResponseRetry { attempt: u32 },
+    /// User or operator cancelled the in-flight turn.
+    Interrupted,
 }
 
 pub trait AgentProgress: Send + Sync {
@@ -139,6 +141,7 @@ pub fn format_step_block(event: &AgentEvent) -> String {
         AgentEvent::EmptyResponseRetry { attempt } => {
             format!("No reply text yet — retrying summary ({attempt}/{MAX_EMPTY_RESPONSE_RETRIES})")
         }
+        AgentEvent::Interrupted => "⚡ Прервано".into(),
     }
 }
 

@@ -1,3 +1,4 @@
+mod cancel;
 mod compaction;
 mod context;
 mod dispatcher;
@@ -8,6 +9,7 @@ mod review;
 mod tools;
 mod turn;
 
+pub use cancel::{interrupted_reply, TurnInterrupted, INTERRUPTED_MARKER, INTERRUPTED_TEXT};
 pub use compaction::force_compact_session;
 pub use dispatcher::AgentDispatcher;
 pub use loop_::{AgentLoop, AgentResponse};

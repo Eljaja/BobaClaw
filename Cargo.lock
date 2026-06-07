@@ -216,6 +216,7 @@ dependencies = [
  "pulldown-cmark",
  "rustyline",
  "tokio",
+ "tokio-util",
  "tracing",
  "tracing-subscriber",
 ]
@@ -237,7 +238,9 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tempfile",
+ "thiserror",
  "tokio",
+ "tokio-util",
  "tracing",
  "uuid",
 ]
@@ -334,6 +337,7 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tokio",
+ "tokio-util",
  "tracing",
 ]
 

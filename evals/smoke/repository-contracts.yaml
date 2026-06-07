@@ -1,0 +1,40 @@
+id: repository-contracts-smoke
+name: Repository contracts smoke test
+risk_level: low
+trigger: pull_request
+objective: Verify BobaClaw keeps minimum harness-engineering contracts for agent-first development.
+checks:
+  - id: root-agents
+    path: AGENTS.md
+    expectation: Root agent operating contract exists with harness workflow and BobaClaw map.
+  - id: cursor-rules
+    paths:
+      - .cursor/rules/harness-workflow.mdc
+      - .cursor/rules/english-instructions.mdc
+    expectation: Cursor harness and English-only instruction rules exist.
+  - id: plan-template
+    path: plans/templates/agent-change-plan.md
+    expectation: Agent task plan template exists.
+  - id: harness-contracts
+    paths:
+      - harness/tool-contract-template.md
+      - harness/sandbox-contract.md
+      - harness/policy.md
+      - harness/tools/exec.md
+    expectation: Tool, sandbox, policy, and core runtime tool contracts exist.
+  - id: ci
+    path: .github/workflows/ci.yml
+    expectation: CI workflow runs structure check, secret scan, and Rust tests.
+  - id: pr-template
+    path: .github/pull_request_template.md
+    expectation: PR template asks for plan, validation, risk, and rollback.
+  - id: secret-scan
+    path: scripts/scan_secrets.py
+    expectation: Lightweight secret scan exists.
+  - id: architecture
+    path: docs/ARCHITECTURE.md
+    expectation: Architecture doc exists for agent context.
+expected_artifacts:
+  - output of scripts/check_repo_structure.py
+  - output of scripts/scan_secrets.py
+  - cargo test --workspace (via CI)

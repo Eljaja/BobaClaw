@@ -1,0 +1,67 @@
+# Production defaults for container deployment (copied to BOBACLAW_HOME on first start).
+# Override by mounting your own config.yaml into the data volume.
+
+provider:
+  base_url: https://api.openai.com/v1
+  api_key_env: OPENAI_API_KEY
+  model: gpt-4o-mini
+
+default_agent_group: home
+
+executor:
+  backend: docker
+  network: true
+  sandbox_packages: false
+  docker:
+    image: bobaclaw/sandbox:latest
+    container_name: bobaclaw-sandbox
+
+gateway:
+  bind: 0.0.0.0
+  port: 18790
+  max_parallel_turns: 4
+
+channels:
+  telegram:
+    enabled: true
+    bot_token_env: TELEGRAM_BOT_TOKEN
+    polling: true
+    dm_policy: pairing
+    allow_from: []
+    group_policy: allowlist
+    allowed_groups: []
+    group_require_mention: true
+    stream_edit_interval_ms: 800
+    format: html
+    proxy_url: ""
+    proxy_env: TELEGRAM_PROXY
+
+scheduler:
+  enabled: true
+  embedded: true
+  tick_secs: 15
+
+cron:
+  jobs: []
+
+mcp_servers:
+  obscura:
+    command: docker
+    args:
+      - run
+      - --rm
+      - -i
+      - h4ckf0r0day/obscura
+      - mcp
+    enabled: true
+    timeout_secs: 180
+    connect_timeout_secs: 90
+    tools_allowlist: []
+    tools_denylist: []
+
+routing:
+  rules:
+    - match:
+        channel: telegram
+        peer: "*"
+      agent_group: home

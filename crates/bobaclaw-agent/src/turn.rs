@@ -1,16 +1,18 @@
 use std::sync::Arc;
 
-use bobaclaw_core::{BobaConfig, BobaPaths, NormalizedRequest};
+use bobaclaw_core::{BobaConfig, BobaPaths, NormalizedRequest, TurnInterrupted};
+use tokio_util::sync::CancellationToken;
 use bobaclaw_mcp::McpHub;
 use bobaclaw_provider::{ConversationMessage, ToolChatClient, ToolCall, ToolSpec};
 use bobaclaw_skills::SkillRegistry;
 use bobaclaw_state::SessionStore;
 use sqlx::SqlitePool;
 
+use crate::cancel::{check_cancel, interrupted_reply};
 use crate::compaction::{
     effective_history, history_to_conversation, maybe_compact_session,
 };
-use crate::progress::{emit, AgentProgress};
+use crate::progress::{emit, AgentEvent, AgentProgress};
 use crate::prompt::build_system_prompt;
 use crate::review::build_review_snapshot;
 use crate::tools::{
@@ -50,6 +52,7 @@ pub struct TurnOutcome {
     pub executed: bool,
     pub tool_call_count: usize,
     pub skill_manage_used: bool,
+    pub interrupted: bool,
     /// Truncated conversation for background skill review (excludes system prompt).
     pub review_snapshot: String,
 }
@@ -63,8 +66,35 @@ pub async fn run_agent_turn(
     session_id: &str,
     req: &NormalizedRequest,
     progress: Option<&dyn AgentProgress>,
+    cancel: &CancellationToken,
 ) -> anyhow::Result<TurnOutcome> {
+    if let Err(TurnInterrupted) = check_cancel(cancel) {
+        return finish_interrupted(
+            String::new(),
+            Vec::new(),
+            session_id,
+            None,
+            false,
+            0,
+            false,
+            &[],
+            progress,
+        );
+    }
     maybe_compact_session(pool, config, session_id, progress).await?;
+    if let Err(TurnInterrupted) = check_cancel(cancel) {
+        return finish_interrupted(
+            String::new(),
+            Vec::new(),
+            session_id,
+            None,
+            false,
+            0,
+            false,
+            &[],
+            progress,
+        );
+    }
 
     let all = SessionStore::new(pool)
         .list_messages(session_id)
@@ -113,15 +143,50 @@ pub async fn run_agent_turn(
     let mut skill_manage_used = false;
 
     for iteration in 1..=MAX_TOOL_ITERATIONS {
+        if let Err(TurnInterrupted) = check_cancel(cancel) {
+            return finish_interrupted(
+                final_text,
+                tool_persist,
+                session_id,
+                last_run_id,
+                executed,
+                tool_call_count,
+                skill_manage_used,
+                &messages,
+                progress,
+            );
+        }
         emit(
             progress,
-            crate::progress::AgentEvent::LlmThinking {
+            AgentEvent::LlmThinking {
                 iteration: iteration as u32,
             },
         );
-        let turn = client
-            .chat_turn(&messages, &tools, req.model_override.as_deref())
-            .await?;
+        let turn = match client
+            .chat_turn(
+                &messages,
+                &tools,
+                req.model_override.as_deref(),
+                Some(cancel),
+            )
+            .await
+        {
+            Ok(t) => t,
+            Err(e) if is_turn_interrupted(&e) => {
+                return finish_interrupted(
+                    final_text,
+                    tool_persist,
+                    session_id,
+                    last_run_id,
+                    executed,
+                    tool_call_count,
+                    skill_manage_used,
+                    &messages,
+                    progress,
+                )
+            }
+            Err(e) => return Err(e),
+        };
 
         let assistant = turn.message.clone();
         let assistant_text = assistant.text_content();
@@ -132,9 +197,10 @@ pub async fn run_agent_turn(
             && action_retries < MAX_ACTION_RETRIES;
 
         if !assistant_text.trim().is_empty() && !will_action_retry {
+            final_text = assistant_text.clone();
             emit(
                 progress,
-                crate::progress::AgentEvent::AssistantChunk {
+                AgentEvent::AssistantChunk {
                     text: assistant_text.clone(),
                 },
             );
@@ -144,11 +210,24 @@ pub async fn run_agent_turn(
         match tool_calls {
             Some(calls) if !calls.is_empty() => {
                 for call in calls {
+                    if let Err(TurnInterrupted) = check_cancel(cancel) {
+                        return finish_interrupted(
+                            final_text,
+                            tool_persist,
+                            session_id,
+                            last_run_id,
+                            executed,
+                            tool_call_count,
+                            skill_manage_used,
+                            &messages,
+                            progress,
+                        );
+                    }
                     tool_call_count += 1;
                     if call.function.name == SKILL_MANAGE {
                         skill_manage_used = true;
                     }
-                    let (body, entry) = run_tool_call(
+                    let (body, entry) = match run_tool_call(
                         paths,
                         config,
                         pool,
@@ -157,10 +236,28 @@ pub async fn run_agent_turn(
                         req,
                         &call,
                         progress,
+                        cancel,
                         &mut last_run_id,
                         &mut executed,
                     )
-                    .await?;
+                    .await
+                    {
+                        Ok(v) => v,
+                        Err(e) if e.is::<TurnInterrupted>() => {
+                            return finish_interrupted(
+                                final_text,
+                                tool_persist,
+                                session_id,
+                                last_run_id,
+                                executed,
+                                tool_call_count,
+                                skill_manage_used,
+                                &messages,
+                                progress,
+                            )
+                        }
+                        Err(e) => return Err(e),
+                    };
                     tool_persist.push(entry);
                     messages.push(ConversationMessage::tool_result(call.id.clone(), body));
                 }
@@ -186,10 +283,23 @@ pub async fn run_agent_turn(
 
     let mut empty_attempt = 0u32;
     while final_text.trim().is_empty() && empty_attempt < MAX_EMPTY_RESPONSE_RETRIES as u32 {
+        if let Err(TurnInterrupted) = check_cancel(cancel) {
+            return finish_interrupted(
+                final_text,
+                tool_persist,
+                session_id,
+                last_run_id,
+                executed,
+                tool_call_count,
+                skill_manage_used,
+                &messages,
+                progress,
+            );
+        }
         empty_attempt += 1;
         emit(
             progress,
-            crate::progress::AgentEvent::EmptyResponseRetry {
+            AgentEvent::EmptyResponseRetry {
                 attempt: empty_attempt,
             },
         );
@@ -208,25 +318,61 @@ pub async fn run_agent_turn(
         messages.push(ConversationMessage::user(nudge));
         emit(
             progress,
-            crate::progress::AgentEvent::LlmThinking {
+            AgentEvent::LlmThinking {
                 iteration: MAX_TOOL_ITERATIONS as u32 + empty_attempt,
             },
         );
-        let turn = client
-            .chat_turn(&messages, retry_tools, req.model_override.as_deref())
-            .await?;
+        let turn = match client
+            .chat_turn(
+                &messages,
+                retry_tools,
+                req.model_override.as_deref(),
+                Some(cancel),
+            )
+            .await
+        {
+            Ok(t) => t,
+            Err(e) if is_turn_interrupted(&e) => {
+                return finish_interrupted(
+                    final_text,
+                    tool_persist,
+                    session_id,
+                    last_run_id,
+                    executed,
+                    tool_call_count,
+                    skill_manage_used,
+                    &messages,
+                    progress,
+                )
+            }
+            Err(e) => return Err(e),
+        };
         let assistant = turn.message.clone();
         let assistant_text = assistant.text_content();
         if !assistant_text.trim().is_empty() {
             emit(
                 progress,
-                crate::progress::AgentEvent::AssistantChunk {
+                AgentEvent::AssistantChunk {
                     text: assistant_text.clone(),
                 },
             );
             final_text = assistant_text;
         }
         messages.push(assistant);
+    }
+
+    if let Err(TurnInterrupted) = check_cancel(cancel) {
+        return finish_interrupted(
+            final_text,
+            tool_persist,
+            session_id,
+            last_run_id,
+            executed,
+            tool_call_count,
+            skill_manage_used,
+            &messages,
+            progress,
+        );
     }
 
     if final_text.trim().is_empty() {
@@ -254,6 +400,39 @@ Ask me to continue or narrow the task."
         executed,
         tool_call_count,
         skill_manage_used,
+        interrupted: false,
+        review_snapshot,
+    })
+}
+
+fn is_turn_interrupted(err: &anyhow::Error) -> bool {
+    err.is::<TurnInterrupted>() || err.downcast_ref::<TurnInterrupted>().is_some()
+}
+
+fn finish_interrupted(
+    partial_text: String,
+    tool_persist: Vec<ToolPersistEntry>,
+    session_id: &str,
+    last_run_id: Option<String>,
+    executed: bool,
+    tool_call_count: usize,
+    skill_manage_used: bool,
+    messages: &[bobaclaw_provider::ConversationMessage],
+    progress: Option<&dyn AgentProgress>,
+) -> anyhow::Result<TurnOutcome> {
+    emit(progress, AgentEvent::Interrupted);
+    let text = interrupted_reply(&partial_text);
+    let persisted_assistant = build_persisted_assistant(&text, &tool_persist);
+    let review_snapshot = build_review_snapshot(messages);
+    Ok(TurnOutcome {
+        text,
+        persisted_assistant,
+        session_id: session_id.to_string(),
+        last_run_id,
+        executed,
+        tool_call_count,
+        skill_manage_used,
+        interrupted: true,
         review_snapshot,
     })
 }
@@ -267,9 +446,13 @@ async fn run_tool_call(
     req: &NormalizedRequest,
     call: &ToolCall,
     progress: Option<&dyn AgentProgress>,
+    cancel: &CancellationToken,
     last_run_id: &mut Option<String>,
     executed: &mut bool,
 ) -> anyhow::Result<(String, ToolPersistEntry)> {
+    if let Err(TurnInterrupted) = check_cancel(cancel) {
+        return Err(TurnInterrupted.into());
+    }
     let name = call.function.name.clone();
     let (body, exit_code) = if name == "schedule" {
         let body = handle_schedule_tool(pool, &req.agent_group, session_id, req, call).await?;
@@ -291,6 +474,7 @@ async fn run_tool_call(
             &req.request_id.to_string(),
             call,
             progress,
+            cancel,
         )
         .await?;
         *executed = true;

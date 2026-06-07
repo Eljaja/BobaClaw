@@ -1,5 +1,8 @@
 use crate::progress::{emit, sanitize_status_text, AgentEvent, AgentProgress};
-use bobaclaw_core::{head_tail_with_hint, BobaConfig, BobaPaths, CommandCapsuleManifest};
+use bobaclaw_core::{
+    head_tail_with_hint, BobaConfig, BobaPaths, CommandCapsuleManifest, TurnInterrupted,
+};
+use tokio_util::sync::CancellationToken;
 use bobaclaw_executor::{ExecutorProfile, SandboxExecutor};
 use bobaclaw_provider::{FunctionSpec, ToolCall, ToolSpec};
 use bobaclaw_state::RunLedger;
@@ -64,6 +67,7 @@ pub async fn handle_exec_tool(
     request_id: &str,
     call: &ToolCall,
     progress: Option<&dyn AgentProgress>,
+    cancel: &CancellationToken,
 ) -> anyhow::Result<ExecToolResult> {
     if call.function.name != TOOL_NAME {
         anyhow::bail!("unknown tool: {}", call.function.name);
@@ -144,14 +148,38 @@ pub async fn handle_exec_tool(
     };
     let _ = manifest;
 
-    let result = SandboxExecutor::exec_command(
-        &config.executor,
-        &profile,
-        &paths.workspace,
-        &workspace,
-        &run_dir,
-        &full_command,
-    );
+    let executor_cfg = config.executor.clone();
+    let profile_clone = profile.clone();
+    let paths_workspace = paths.workspace.clone();
+    let workspace_clone = workspace.clone();
+    let run_dir_clone = run_dir.clone();
+    let command_clone = full_command.clone();
+    let exec_fut = tokio::task::spawn_blocking(move || {
+        SandboxExecutor::exec_command(
+            &executor_cfg,
+            &profile_clone,
+            &paths_workspace,
+            &workspace_clone,
+            &run_dir_clone,
+            &command_clone,
+        )
+    });
+
+    let result = tokio::select! {
+        _ = cancel.cancelled() => {
+            emit(
+                progress,
+                AgentEvent::ToolEnd {
+                    name: TOOL_NAME.into(),
+                    exit_code: 130,
+                    preview: "прервано".into(),
+                },
+            );
+            ledger.mark_denied(&run_id, "interrupted").await?;
+            return Err(TurnInterrupted.into());
+        }
+        res = exec_fut => res.map_err(|e| anyhow::anyhow!("exec join: {e}"))?,
+    };
 
     match result {
         Ok(exec) => {

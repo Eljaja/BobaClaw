@@ -8,6 +8,7 @@ use bobaclaw_agent::{
 };
 use bobaclaw_core::NormalizedRequest;
 use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
 
 use crate::terminal_md::render_markdown_lines;
 
@@ -38,11 +39,23 @@ impl ChatUi {
             ui.on_progress(&status, &activity_cb, event);
         };
 
+        let scope = req.dispatch_scope();
+        let interrupt_dispatcher = dispatcher.clone();
+        let interrupt_scope = scope.clone();
+        let interrupt_done = done.clone();
+        let interrupt_listener = tokio::spawn(async move {
+            let _ = tokio::signal::ctrl_c().await;
+            if !interrupt_done.load(Ordering::Relaxed) {
+                interrupt_dispatcher.interrupt_scope(&interrupt_scope).await;
+            }
+        });
+
         let result = dispatcher
             .handle_with_progress(req, Some(&progress_cb))
             .await;
 
         done.store(true, Ordering::Relaxed);
+        interrupt_listener.abort();
         let _ = spinner.await;
         clear_line();
         result.map(|resp| {
@@ -66,11 +79,22 @@ impl ChatUi {
             ui.on_progress(&status, &activity_cb, event);
         };
 
+        let cancel = CancellationToken::new();
+        let interrupt_cancel = cancel.clone();
+        let interrupt_done = done.clone();
+        let interrupt_listener = tokio::spawn(async move {
+            let _ = tokio::signal::ctrl_c().await;
+            if !interrupt_done.load(Ordering::Relaxed) {
+                interrupt_cancel.cancel();
+            }
+        });
+
         let result = agent
-            .handle_with_progress(req, Some(&progress_cb))
+            .handle_with_progress(req, Some(&progress_cb), cancel)
             .await;
 
         done.store(true, Ordering::Relaxed);
+        interrupt_listener.abort();
         let _ = spinner.await;
         clear_line();
         result.map(|resp| {
@@ -131,6 +155,7 @@ impl ChatUi {
                 AgentEvent::Compacting { .. } => "\x1b[34m",
                 AgentEvent::AssistantChunk { .. } => "\x1b[36m",
                 AgentEvent::EmptyResponseRetry { .. } => "\x1b[35m",
+                AgentEvent::Interrupted => "\x1b[33m",
             };
             for line in block.lines() {
                 eprintln!("{accent}  │ {line}\x1b[0m");
@@ -166,6 +191,14 @@ impl ChatUi {
             println!("\x1b[2m  ╰{}\x1b[0m", "─".repeat(width));
         } else {
             println!("  └{}", "─".repeat(width));
+        }
+
+        if resp.interrupted {
+            if self.color {
+                eprintln!("\x1b[2m  ⚡ прервано\x1b[0m");
+            } else {
+                eprintln!("  ⚡ прервано");
+            }
         }
 
         if resp.executed {

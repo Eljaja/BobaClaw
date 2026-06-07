@@ -80,7 +80,7 @@ pub async fn run_telegram_polling(
                 &inbound.peer,
             );
 
-            if let Some(reply) = handle_slash_command(
+            if let Some((reply, stop_only)) = handle_slash_command(
                 &state,
                 &inbound,
                 &agent_group,
@@ -88,6 +88,16 @@ pub async fn run_telegram_polling(
             )
             .await?
             {
+                if stop_only {
+                    let scope = NormalizedRequest::telegram(
+                        &inbound.text,
+                        &agent_group,
+                        inbound.peer.clone(),
+                        Vec::new(),
+                    )
+                    .dispatch_scope();
+                    let _ = dispatcher.interrupt_scope(&scope).await;
+                }
                 let chat_id: i64 = inbound.peer.peer.parse().unwrap_or(0);
                 let thread_id = inbound.peer.thread_id.as_ref().and_then(|t| t.parse().ok());
                 api.send_message(
@@ -274,7 +284,7 @@ async fn handle_slash_command(
     inbound: &InboundMessage,
     agent_group: &str,
     bot_username: Option<&str>,
-) -> anyhow::Result<Option<String>> {
+) -> anyhow::Result<Option<(String, bool)>> {
     let Some((cmd, _args)) = parse_slash_command(&inbound.text, bot_username) else {
         return Ok(None);
     };
@@ -290,9 +300,10 @@ async fn handle_slash_command(
             } else {
                 "Новая сессия."
             };
-            Ok(Some(format!("{note}\nsession={session_id}")))
+            Ok(Some((format!("{note}\nsession={session_id}"), false)))
         }
-        "help" | "h" | "commands" => Ok(Some(telegram_help_text().to_string())),
+        "help" | "h" | "commands" => Ok(Some((telegram_help_text().to_string(), false))),
+        "stop" => Ok(Some(("⚡ Прерываю текущий запрос…".into(), true))),
         _ => Ok(None),
     }
 }

@@ -8,6 +8,7 @@ pub mod policy;
 pub mod request;
 pub mod run;
 pub mod truncate;
+pub mod turn;
 
 pub use channels::{
     ChannelPeer, ChannelsConfig, DmPolicy, GroupPolicy, RouteMatch, RoutingConfig, RoutingRule,
@@ -27,3 +28,4 @@ pub use request::{
 };
 pub use run::{CommandCapsuleManifest, RunEventKind, RunStatus};
 pub use truncate::head_tail_with_hint;
+pub use turn::TurnInterrupted;

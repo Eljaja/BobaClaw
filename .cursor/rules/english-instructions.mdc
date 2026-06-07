@@ -1,0 +1,14 @@
+---
+description: Contributor instructions must be English only
+alwaysApply: true
+---
+
+# English-only instructions
+
+Write and edit **contributor-facing** docs in English:
+
+- `AGENTS.md`, `.cursor/rules/`, `harness/`, `evals/`, `plans/`
+- harness docs in `docs/` (agent-first, best-practices, ci-cd, evals, telemetry)
+- plan templates, PR template, new harness contracts
+
+Do not add Russian (or other non-English) text to these paths. End-user workspace templates under `workspace-examples/` may stay multilingual.

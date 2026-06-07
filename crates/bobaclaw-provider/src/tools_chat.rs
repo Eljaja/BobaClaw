@@ -1,6 +1,7 @@
 use std::time::Duration;
 
-use bobaclaw_core::ProviderConfig;
+use bobaclaw_core::{ProviderConfig, TurnInterrupted};
+use tokio_util::sync::CancellationToken;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -150,6 +151,7 @@ impl ToolChatClient {
         messages: &[ConversationMessage],
         tools: &[ToolSpec],
         model_override: Option<&str>,
+        cancel: Option<&CancellationToken>,
     ) -> anyhow::Result<ChatTurnResult> {
         let model = model_override.unwrap_or(&self.model);
         let url = format!("{}/chat/completions", self.base_url);
@@ -189,7 +191,7 @@ impl ToolChatClient {
         for attempt in 1..=MAX_CHAT_REQUEST_RETRIES {
             let mut outbound = messages.to_vec();
             normalize_messages_for_provider(&mut outbound);
-            let send_result = self
+            let request = self
                 .client
                 .post(&url)
                 .bearer_auth(&self.api_key)
@@ -198,9 +200,17 @@ impl ToolChatClient {
                     messages: &outbound,
                     tools,
                     tool_choice: "auto",
-                })
-                .send()
-                .await;
+                });
+            let send_result = if let Some(token) = cancel {
+                tokio::select! {
+                    _ = token.cancelled() => {
+                        return Err(interrupt_error());
+                    }
+                    res = request.send() => res,
+                }
+            } else {
+                request.send().await
+            };
 
             let resp = match send_result {
                 Ok(r) => r,
@@ -219,7 +229,16 @@ impl ToolChatClient {
 
             let status = resp.status();
             if status.is_success() {
-                match resp.json::<Response>().await {
+                let parse_fut = resp.json::<Response>();
+                let parsed_body = if let Some(token) = cancel {
+                    tokio::select! {
+                        _ = token.cancelled() => return Err(interrupt_error()),
+                        res = parse_fut => res,
+                    }
+                } else {
+                    parse_fut.await
+                };
+                match parsed_body {
                     Ok(p) => {
                         parsed = Some(p);
                         break;
@@ -289,13 +308,17 @@ impl ToolChatClient {
         messages: &[ConversationMessage],
         model_override: Option<&str>,
     ) -> anyhow::Result<String> {
-        let turn = self.chat_turn(messages, &[], model_override).await?;
+        let turn = self.chat_turn(messages, &[], model_override, None).await?;
         let text = turn.message.text_content();
         if text.trim().is_empty() {
             anyhow::bail!("empty completion from provider");
         }
         Ok(text)
     }
+}
+
+fn interrupt_error() -> anyhow::Error {
+    TurnInterrupted.into()
 }
 
 #[cfg(test)]

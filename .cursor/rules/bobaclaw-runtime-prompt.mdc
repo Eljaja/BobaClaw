@@ -1,0 +1,12 @@
+---
+description: Rules for editing BobaClaw runtime prompt and agent loop
+globs: crates/bobaclaw-agent/src/{prompt,turn,loop_,review}.rs
+alwaysApply: false
+---
+
+# Runtime prompt and agent loop
+
+- `prompt.rs` — durable agent **behavior** only; no executor flags, config keys, or CLI details.
+- `turn.rs` — iteration limits, nudges, empty-response retries; keep prompt text aligned, not duplicated.
+- After prompt changes: `cargo test -p bobaclaw-agent prompt`.
+- Stack-specific facts → `docs/`, `config.example.yaml`, or workspace `BOBACLAW.md`.

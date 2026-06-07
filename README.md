@@ -1,10 +1,10 @@
 # BobaClaw
 
-Рабочая область для проектирования личного AI-ассистента в духе экосистемы **Claw** (OpenClaw и родственные проекты).
+Workspace for designing a personal AI assistant in the **Claw** ecosystem (OpenClaw and related projects).
 
-Runtime на **Rust** в `crates/`; референсы в `references/` (read-only).
+Runtime is **Rust** in `crates/`; reference snapshots live in `references/` (read-only).
 
-## Быстрый старт
+## Quick start
 
 ```bash
 # WSL / Linux
@@ -13,36 +13,55 @@ cargo build --release
 export OPENAI_API_KEY=sk-...
 ./target/release/bobaclaw init
 ./target/release/bobaclaw doctor
-./target/release/bobaclaw chat              # интерактивный REPL
-./target/release/bobaclaw agent --message "Привет"
-./target/release/bobaclaw gateway start   # http://127.0.0.1:18790
+./target/release/bobaclaw chat              # interactive REPL
+./target/release/bobaclaw agent --message "Hello"
+./target/release/bobaclaw gateway start     # http://127.0.0.1:18790
 ```
 
-Капсула в sandbox: `bobaclaw agent --message "run: echo hello"`.
+Sandbox capsule smoke test: `bobaclaw agent --message "run: echo hello"`.
 
-### Опционально: браузер Obscura (MCP)
+### Optional: Obscura browser (MCP)
 
 ```bash
-make install-obscura-mcp          # pull образа Obscura + сниппет config
-# раскомментируй obscura в ~/.bobaclaw/config.yaml (Docker stdio, см. config.example.yaml)
+make install-obscura-mcp          # pull Obscura image + config snippet
+# uncomment obscura in ~/.bobaclaw/config.yaml (Docker stdio; see config.example.yaml)
 bobaclaw doctor                   # mcp obscura: OK, 12 tool(s)
 ```
 
-## Документация
+## Agent-first harness
 
-| Документ | Содержание |
-|----------|------------|
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Целевая архитектура BobaClaw, сравнение референсов, компоненты, безопасность, фазы |
-| [docs/adr/](docs/adr/) | ADR: Rust stack, state.db, executor profiles, Skill Forge |
+This repository follows the **harness-engineering** template for agentic development (based on [Harness-engineering](https://github.com/Eljaja/Harness-engineering)):
 
-## Референсы
+| Path | Purpose |
+|------|---------|
+| [AGENTS.md](AGENTS.md) | Operating contract for Cursor / contributors |
+| [.cursor/rules/](.cursor/rules/) | Cursor rules for workflow, Rust, prompt, contracts |
+| [plans/](plans/) | Plans for multi-file and high-risk changes |
+| [harness/](harness/) | Tool, sandbox, and policy contracts |
+| [evals/](evals/) | Smoke scenarios for CI |
 
-| Проект | Путь | Роль в портфеле |
-|--------|------|-----------------|
-| OpenClaw | `references/openclaw` | Полный feature-set, gateway, каналы, apps |
-| Hermes Agent | `references/hermes-agent` | Learning loop, миграция, cloud backends |
-| nanoClaw | `references/nanoClaw` | Минимальный код, Docker-изоляция |
-| NullClaw | `references/nullclaw` | Edge, Zig, vtable-плагины |
-| PicoClaw | `references/picoClaw` | Go, лёгкое железо, широкие каналы |
+Before handoff: `make ci`. Before merge to `main`: `make ci-full` (or `make lint`).
 
-Обновление снимков: `git pull` внутри каждого каталога в `references/` (отдельные git-репозитории).
+**Language:** all contributor instructions (`AGENTS.md`, `.cursor/rules/`, `harness/`, `evals/`, `plans/`, harness docs) are **English only**.
+
+## Documentation
+
+| Document | Contents |
+|----------|----------|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Target architecture, reference comparison, components, security, phases |
+| [docs/agent-first-repository.md](docs/agent-first-repository.md) | Agent-first repository layout |
+| [docs/best-practices.md](docs/best-practices.md) | Harness engineering practices |
+| [docs/ci-cd.md](docs/ci-cd.md) | CI/CD for agentic development |
+| [docs/adr/](docs/adr/) | ADRs: Rust stack, state.db, executor profiles, Skill Forge |
+
+## References
+
+| Project | Path | Role in portfolio |
+|---------|------|-------------------|
+| OpenClaw | `references/openclaw` | Full feature set, gateway, channels, apps |
+| Hermes Agent | `references/hermes-agent` | Learning loop, migration, cloud backends |
+| nanoClaw | `references/nanoClaw` | Minimal code, Docker isolation |
+| NullClaw | `references/nullclaw` | Edge, Zig, vtable plugins |
+| PicoClaw | `references/picoClaw` | Go, lightweight hardware, broad channels |
+
+Update snapshots: `git pull` inside each directory under `references/` (separate git repositories).

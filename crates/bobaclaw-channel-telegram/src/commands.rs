@@ -24,6 +24,7 @@ pub fn parse_slash_command<'a>(text: &'a str, bot_username: Option<&str>) -> Opt
 pub fn telegram_help_text() -> &'static str {
     "Команды BobaClaw:\n\
      /new — новая сессия (сброс истории чата)\n\
+     /stop — прервать текущий запрос\n\
      /help — эта справка\n\
      /pair — код pairing (личные сообщения)"
 }

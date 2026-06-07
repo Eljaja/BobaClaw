@@ -1,10 +1,91 @@
-# AGENTS.md — repo contributors (Cursor / dev agents)
+# AGENTS.md — BobaClaw repository operating contract
 
-This file guides humans and IDE agents working **on the BobaClaw codebase**. It is **not** injected into the runtime agent — that uses workspace `BOBACLAW.md` under `~/.bobaclaw/workspace/<group>/`.
+This file guides **humans and Cursor/dev agents** working on the BobaClaw codebase. It is **not** injected into the runtime agent — that uses workspace `BOBACLAW.md` under `~/.bobaclaw/workspace/<group>/`.
 
-## System prompt (`crates/bobaclaw-agent/src/prompt.rs`)
+## Core rule
 
-The runtime system prompt is assembled in `build_system_prompt()`. It follows a **stable-tier** layout (Hermes-style) plus workspace bootstrap files (OpenClaw-style): identity, agent loop, tool discipline, compaction semantics, then optional `SOUL.md` / `BOBACLAW.md` / `MEMORY.md` from the user workspace.
+Prefer reproducible engineering over clever autonomous behavior. Every non-trivial change must be understandable from the request, plan, diff, validation output, and PR summary.
+
+## Language
+
+All **contributor instructions** in this repository must be written in **English**:
+
+- root and nested `AGENTS.md`;
+- `.cursor/rules/`;
+- `harness/`, `evals/`, `plans/`;
+- harness-engineering docs under `docs/` (`agent-first-repository.md`, `best-practices.md`, `ci-cd.md`, `evals.md`, `telemetry.md`);
+- PR template and plan templates.
+
+End-user runtime workspace files (`workspace-examples/`, `~/.bobaclaw/workspace/`) may use the operator's language. Runtime system prompt text in `prompt.rs` stays English for prompt-cache stability unless explicitly localized in a dedicated change.
+
+## Required workflow
+
+1. Read this file first.
+2. Read the closest nested `AGENTS.md` before editing files in a subdirectory (`harness/`, `evals/`, `plans/`, `crates/`).
+3. For multi-file, risky, or agent-generated changes, create or update a plan under `plans/active/` using `plans/templates/agent-change-plan.md`.
+4. Keep changes small and scoped. Do not mix unrelated refactors with docs, policy, or CI changes.
+5. Add or update tests/evals/checks when behavior, policy, or repository contracts change.
+6. Run `make ci` before handoff when possible.
+7. In the final summary or PR, include changed files, validation run, known gaps, and rollback path.
+
+## Stable commands
+
+```bash
+make ci                 # harness checks + unit tests
+make ci-full            # ci + fmt + clippy (full Rust gate)
+make lint               # fmt-check + clippy + tests
+make check-structure    # required harness files/directories
+make scan-secrets       # lightweight secret-pattern scan
+make eval-smoke         # smoke eval contract validation
+make test               # cargo test --workspace
+make build              # release binary
+make doctor             # environment / sandbox probes
+```
+
+## Repository map
+
+| Path | Role |
+|------|------|
+| `crates/` | Rust workspace — runtime, agent loop, executor, gateway, channels |
+| `docs/` | Architecture, ADR, harness-engineering guides |
+| `harness/` | Tool/sandbox/policy contracts for the runtime agent |
+| `evals/` | Smoke and regression scenario definitions |
+| `plans/` | Reviewable intent and implementation records |
+| `scripts/` | Shell integration tests, harness validation scripts |
+| `workspace-examples/` | End-user workspace templates (`BOBACLAW.md`, skills) |
+| `references/` | Read-only Claw ecosystem snapshots (separate git repos) |
+| `.cursor/rules/` | Cursor agent rules for repo contributors |
+
+## Repository boundaries
+
+Do not commit:
+
+- API keys, tokens, passwords, SSH private keys, cookies, session data, or `.env` files.
+- Large generated artifacts (`target/`, build output) unless explicitly required.
+- Vendor/cache directories such as `node_modules/`, `.venv/`, `.pytest_cache/`.
+- Machine-local absolute paths in reusable docs or configs.
+
+## Harness-engineering expectations
+
+A high-quality agentic repository defines:
+
+- **Instructions** — durable operational guidance in `AGENTS.md` (root + nested).
+- **Plans** — reviewable intent in `plans/`.
+- **Tool contracts** — schema, side effects, approval, timeout, retry, telemetry (`harness/tools/`).
+- **Sandbox contracts** — filesystem, network, process, secrets boundaries (`harness/sandbox-contract.md`).
+- **Evals** — deterministic smoke/regression checks (`evals/`).
+- **CI/CD** — stable local commands mirrored in `.github/workflows/ci.yml`.
+- **Telemetry** — traces and artifacts to reconstruct autonomous work (`docs/telemetry.md`, Run Ledger).
+
+## Review stance
+
+Treat agent output as untrusted until checks and human review validate it. A plan explains intent but does not prove correctness.
+
+---
+
+## BobaClaw-specific: runtime system prompt
+
+The runtime system prompt is assembled in `crates/bobaclaw-agent/src/prompt.rs` via `build_system_prompt()`. It follows a **stable-tier** layout (Hermes-style) plus workspace bootstrap files (OpenClaw-style): identity, agent loop, tool discipline, compaction semantics, then optional `SOUL.md` / `BOBACLAW.md` / `MEMORY.md` from the user workspace.
 
 ### Do not add small implementation details to the prompt
 
@@ -46,4 +127,6 @@ Runtime enforcement lives in `crates/bobaclaw-agent/src/turn.rs` (iteration limi
 ## Related docs
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — agent loop, executor, gateway
+- [docs/agent-first-repository.md](docs/agent-first-repository.md) — harness layout for this repo
+- [docs/best-practices.md](docs/best-practices.md) — harness engineering practices
 - [docs/adr/003-executor-profiles.md](docs/adr/003-executor-profiles.md) — sandbox profiles (not for `prompt.rs`)

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use bobaclaw_core::{BobaConfig, BobaPaths, NormalizedRequest};
+use tokio_util::sync::CancellationToken;
 use bobaclaw_mcp::McpHub;
 use bobaclaw_skills::SkillRegistry;
 use bobaclaw_state::{SessionStore, StateDb};
@@ -15,6 +16,8 @@ pub struct AgentResponse {
     pub session_id: String,
     pub run_id: Option<String>,
     pub executed: bool,
+    /// Turn was cancelled (Ctrl+C, `/stop`, or a new message for the same scope).
+    pub interrupted: bool,
     /// Skill auto-saved after a tool-heavy turn (background review or forge fallback).
     pub auto_saved_skill: Option<String>,
 }
@@ -43,13 +46,15 @@ impl AgentLoop {
     }
 
     pub async fn handle(&self, req: NormalizedRequest) -> anyhow::Result<AgentResponse> {
-        self.handle_with_progress(req, None).await
+        self.handle_with_progress(req, None, CancellationToken::new())
+            .await
     }
 
     pub async fn handle_with_progress(
         &self,
         req: NormalizedRequest,
         progress: Option<&dyn AgentProgress>,
+        cancel: CancellationToken,
     ) -> anyhow::Result<AgentResponse> {
         let pool = self.state.pool();
         let sessions = SessionStore::new(pool);
@@ -72,11 +77,15 @@ impl AgentLoop {
             &session_id,
             &req,
             progress,
+            &cancel,
         )
         .await?;
 
         let mut reply_text = outcome.text.clone();
-        let auto_saved_skill = maybe_post_turn_skill_save(
+        let auto_saved_skill = if outcome.interrupted {
+            None
+        } else {
+            maybe_post_turn_skill_save(
             &self.paths,
             &self.config,
             &self.state,
@@ -106,7 +115,8 @@ impl AgentLoop {
             };
             reply_text.push_str(&note);
             saved.skill_name
-        });
+        })
+        };
 
         sessions
             .append_message(&session_id, "assistant", &outcome.persisted_assistant)
@@ -117,6 +127,7 @@ impl AgentLoop {
             session_id,
             run_id: outcome.last_run_id,
             executed: outcome.executed,
+            interrupted: outcome.interrupted,
             auto_saved_skill,
         })
     }

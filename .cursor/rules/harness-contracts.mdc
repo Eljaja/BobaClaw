@@ -1,0 +1,12 @@
+---
+description: Editing harness tool/sandbox/policy contracts
+globs: harness/**/*
+alwaysApply: false
+---
+
+# Harness contracts
+
+- Any change to tool, sandbox, or policy behavior must update matching docs in `harness/` and evals when boundaries shift.
+- Use `harness/tool-contract-template.md` for new tools; keep filled contracts in `harness/tools/`.
+- Mark side effects, approval requirements, timeouts, retries, and telemetry fields explicitly.
+- Treat network, credentials, repository-write, and sandbox boundary changes as high risk — require a plan.

@@ -46,7 +46,7 @@ pub async fn run_chat(
         let line = match rl.readline("bobaclaw> ") {
             Ok(l) => l,
             Err(ReadlineError::Interrupted) => {
-                println!("\n(прервано — /quit для выхода)");
+                println!("\n(очищено — Ctrl+C во время работы агента прерывает запрос; /quit для выхода)");
                 continue;
             }
             Err(ReadlineError::Eof) => {
@@ -65,7 +65,15 @@ pub async fn run_chat(
         }
         let _ = rl.add_history_entry(line);
 
-        if let Some(reply) = match handle_slash(line, &paths, &config, &agent_group, &state).await
+        if let Some(reply) = match handle_slash(
+            line,
+            &paths,
+            &config,
+            &agent_group,
+            &state,
+            dispatcher.as_deref(),
+        )
+        .await
         {
             Ok(v) => v,
             Err(e) => {
@@ -107,6 +115,7 @@ async fn handle_slash(
     config: &BobaConfig,
     agent_group: &str,
     state: &StateDb,
+    dispatcher: Option<&AgentDispatcher>,
 ) -> anyhow::Result<Option<String>> {
     let pool = state.pool();
     let parts: Vec<&str> = line.split_whitespace().collect();
@@ -143,6 +152,17 @@ async fn handle_slash(
                 ));
             }
             Ok(Some(lines.join("\n")))
+        }
+        "/stop" => {
+            let Some(dispatcher) = dispatcher else {
+                return Ok(Some("Нет активного агента (нужен API key).".into()));
+            };
+            let scope = format!("cli:{agent_group}");
+            if dispatcher.interrupt_scope(&scope).await {
+                Ok(Some("⚡ Прерываю текущий запрос…".into()))
+            } else {
+                Ok(Some("Нет активного запроса.".into()))
+            }
         }
         "/compact" => {
             let id = SessionStore::new(pool).get_or_create_cli(agent_group).await?;
@@ -219,6 +239,7 @@ fn help_text() -> String {
   /new, /clear     новая сессия
   /session         id сессии
   /compact         LLM-сжатие истории (Hermes/OpenClaw)
+  /stop            прервать текущий запрос (как Hermes Ctrl+C)
   /skills          skills в workspace
   /doctor          проверка окружения
 
