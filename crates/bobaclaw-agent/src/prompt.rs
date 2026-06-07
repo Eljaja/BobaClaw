@@ -274,7 +274,7 @@ fn load_memory_dir(workspace: &Path) -> Vec<String> {
         let modified = meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
         files.push((path, modified));
     }
-    files.sort_by(|a, b| b.1.cmp(&a.1));
+    files.sort_by_key(|(_, modified)| std::cmp::Reverse(*modified));
 
     let mut sections = Vec::new();
     let mut budget = MEMORY_DIR_MAX_CHARS;
