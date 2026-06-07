@@ -6,7 +6,7 @@ use axum::{Json, Router};
 use bobaclaw_agent::AgentDispatcher;
 use bobaclaw_channel_telegram::run_telegram_polling;
 use bobaclaw_core::{BobaConfig, BobaPaths, IngressKind, NormalizedRequest};
-use bobaclaw_scheduler::spawn_embedded_scheduler;
+use bobaclaw_scheduler::spawn_in_process_scheduler;
 use serde::{Deserialize, Serialize};
 
 pub struct GatewayState {
@@ -54,7 +54,7 @@ pub async fn serve(paths: BobaPaths, config: BobaConfig) -> anyhow::Result<()> {
         .route("/api/agent/interrupt", post(api_agent_interrupt))
         .with_state(state);
 
-    spawn_embedded_scheduler(paths.clone(), config.clone(), Some(dispatcher.clone()));
+    spawn_in_process_scheduler(paths.clone(), config.clone(), Some(dispatcher.clone()));
 
     if config.channels.telegram.enabled && config.channels.telegram.polling {
         let tg_paths = paths.clone();

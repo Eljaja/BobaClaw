@@ -3,7 +3,7 @@ use bobaclaw_core::ExecutorBackend;
 use bobaclaw_core::{BobaConfig, BobaPaths, NormalizedRequest};
 use bobaclaw_executor::{bwrap_apt_advisory, check_bwrap, check_docker, check_docker_sandbox};
 use bobaclaw_gateway::serve;
-use bobaclaw_scheduler::run_scheduler_daemon;
+use bobaclaw_scheduler::{run_scheduler_daemon, spawn_in_process_scheduler};
 use bobaclaw_skill_forge::SkillForge;
 use bobaclaw_skills::{guard_skill_dir, SkillRegistry, SkillStateStore, TrustLevel};
 use bobaclaw_state::StateDb;
@@ -333,7 +333,15 @@ async fn cmd_channel(
                 if !config.channels.telegram.enabled {
                     anyhow::bail!("enable channels.telegram.enabled in config.yaml");
                 }
-                run_telegram_polling(paths, config, None).await?;
+                let dispatcher = std::sync::Arc::new(
+                    bobaclaw_agent::AgentDispatcher::new(paths.clone(), config.clone()).await?,
+                );
+                spawn_in_process_scheduler(
+                    paths.clone(),
+                    config.clone(),
+                    Some(dispatcher.clone()),
+                );
+                run_telegram_polling(paths, config, Some(dispatcher)).await?;
             }
         },
     }

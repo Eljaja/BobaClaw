@@ -11,9 +11,24 @@ use tracing::{error, info, warn};
 
 use crate::deliver::deliver_message;
 
-/// Background task inside chat/gateway when `scheduler.embedded: true`.
-/// Pass the same dispatcher as chat/gateway so MCP servers (e.g. Obscura Docker) are not
-/// spawned again on every scheduler tick.
+/// Background scheduler inside long-running processes (gateway, channel telegram).
+/// Runs when `scheduler.enabled` regardless of `embedded` (that flag only gates `bobaclaw chat`).
+pub fn spawn_in_process_scheduler(
+    paths: BobaPaths,
+    config: BobaConfig,
+    shared_dispatcher: Option<Arc<AgentDispatcher>>,
+) {
+    if !config.scheduler.enabled {
+        return;
+    }
+    tokio::spawn(async move {
+        if let Err(e) = run_scheduler_loop(paths, config, shared_dispatcher).await {
+            error!("in-process scheduler exited: {e}");
+        }
+    });
+}
+
+/// Background task inside `bobaclaw chat` when `scheduler.embedded: true`.
 pub fn spawn_embedded_scheduler(
     paths: BobaPaths,
     config: BobaConfig,
@@ -22,11 +37,7 @@ pub fn spawn_embedded_scheduler(
     if !config.scheduler.enabled || !config.scheduler.embedded {
         return;
     }
-    tokio::spawn(async move {
-        if let Err(e) = run_scheduler_loop(paths, config, shared_dispatcher).await {
-            error!("embedded scheduler exited: {e}");
-        }
-    });
+    spawn_in_process_scheduler(paths, config, shared_dispatcher);
 }
 
 /// Foreground daemon (`bobaclaw scheduler start`). Holds until Ctrl+C.
@@ -87,11 +98,11 @@ pub async fn run_scheduler_loop(
     };
     let dispatcher = shared_dispatcher.or(owned_dispatcher);
 
-    let tick = Duration::from_secs(config.scheduler.tick_secs.max(5));
+    let max_tick = Duration::from_secs(config.scheduler.tick_secs.max(5));
     sync_cron_from_config(&paths, &config).await?;
     info!(
         "scheduler running (tick={}s, embedded={}); one-shot + cron",
-        tick.as_secs(),
+        max_tick.as_secs(),
         config.scheduler.embedded
     );
     loop {
@@ -100,8 +111,29 @@ pub async fn run_scheduler_loop(
                 error!("scheduler tick: {e}");
             }
         }
-        tokio::time::sleep(tick).await;
+        let sleep_for = next_sleep_duration(&paths, max_tick).await;
+        tokio::time::sleep(sleep_for).await;
     }
+}
+
+async fn next_sleep_duration(paths: &BobaPaths, max_tick: Duration) -> Duration {
+    let min_sleep = Duration::from_secs(1);
+    let state = match StateDb::open(&paths.state_db).await {
+        Ok(s) => s,
+        Err(_) => return max_tick,
+    };
+    let next = match ScheduledTaskStore::new(state.pool())
+        .next_pending_run_at()
+        .await
+    {
+        Ok(Some(t)) => {
+            let now = Utc::now().timestamp_millis() as f64 / 1000.0;
+            let secs = (t - now).max(0.0);
+            Duration::from_secs_f64(secs).min(max_tick)
+        }
+        _ => max_tick,
+    };
+    next.max(min_sleep)
 }
 
 #[cfg(unix)]
@@ -190,28 +222,25 @@ async fn execute_scheduled_task(
     pool: &sqlx::SqlitePool,
     task: &ScheduledTask,
 ) -> anyhow::Result<()> {
-    let req = NormalizedRequest {
-        request_id: uuid::Uuid::new_v4(),
-        ingress: IngressKind::Cron,
-        agent_group: task.agent_group.clone(),
-        session_id: None,
-        channel_peer: None,
-        user_text: task.prompt.clone(),
-        attachments: Vec::new(),
-        model_override: None,
+    let text = if let Some(fixed) = task.deliver_text.as_deref().filter(|s| !s.is_empty()) {
+        fixed.to_string()
+    } else {
+        let req = NormalizedRequest {
+            request_id: uuid::Uuid::new_v4(),
+            ingress: IngressKind::Cron,
+            agent_group: task.agent_group.clone(),
+            session_id: task.source_session_id.clone(),
+            channel_peer: None,
+            user_text: task.prompt.clone(),
+            attachments: Vec::new(),
+            model_override: None,
+        };
+        dispatcher.handle(req).await?.text
     };
-
-    let resp = dispatcher.handle(req).await?;
-
-    let text = task
-        .deliver_text
-        .as_deref()
-        .filter(|s| !s.is_empty())
-        .unwrap_or(resp.text.as_str());
 
     let channel = task.deliver_channel.as_deref().unwrap_or("cli");
     let peer = task.deliver_peer.as_deref();
-    deliver_message(config, &paths.home, channel, peer, text).await?;
+    deliver_message(config, &paths.home, channel, peer, &text).await?;
 
     ScheduledTaskStore::new(pool).mark_done(&task.id).await?;
     info!("scheduled task {} delivered via {channel}", task.id);
@@ -255,27 +284,54 @@ async fn run_due_cron(
         info!("cron job {} firing", job.id);
 
         let cfg_job = config.cron.jobs.iter().find(|j| j.id == job.id);
-        let deliver = cfg_job.and_then(|j| j.deliver.as_ref());
+        let cfg_deliver = cfg_job.and_then(|j| j.deliver.as_ref());
 
-        let req = NormalizedRequest {
-            request_id: uuid::Uuid::new_v4(),
-            ingress: IngressKind::Cron,
-            agent_group: job.agent_group.clone(),
-            session_id: None,
-            channel_peer: None,
-            user_text: job.prompt.clone(),
-            attachments: Vec::new(),
-            model_override: None,
+        let deliver_channel = job
+            .deliver_channel
+            .as_deref()
+            .or_else(|| cfg_deliver.map(|d| d.channel.as_str()));
+        let deliver_peer = job
+            .deliver_peer
+            .as_deref()
+            .or_else(|| cfg_deliver.map(|d| d.peer.as_str()));
+
+        let run_result = if let Some(fixed) = job.deliver_text.as_deref().filter(|s| !s.is_empty())
+        {
+            Ok(fixed.to_string())
+        } else {
+            let req = NormalizedRequest {
+                request_id: uuid::Uuid::new_v4(),
+                ingress: IngressKind::Cron,
+                agent_group: job.agent_group.clone(),
+                session_id: job.source_session_id.clone(),
+                channel_peer: None,
+                user_text: job.prompt.clone(),
+                attachments: Vec::new(),
+                model_override: None,
+            };
+            dispatcher.handle(req).await.map(|r| r.text)
         };
-        match dispatcher.handle(req).await {
-            Ok(resp) => {
-                if let Some(d) = deliver {
-                    if let Err(e) =
-                        deliver_message(config, &paths.home, &d.channel, Some(&d.peer), &resp.text)
-                            .await
+
+        match run_result {
+            Ok(text) => {
+                if let Some(channel) = deliver_channel {
+                    if let Err(e) = deliver_message(
+                        config,
+                        &paths.home,
+                        channel,
+                        deliver_peer,
+                        &text,
+                    )
+                    .await
                     {
                         warn!("cron {} deliver: {e}", job.id);
                     }
+                } else {
+                    info!(
+                        "cron {} ran (no deliver target); reply len={}",
+                        job.id,
+                        text.len()
+                    );
                 }
                 let _ = store.record_run(&job.id, "done").await;
             }

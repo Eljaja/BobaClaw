@@ -46,8 +46,8 @@ channels:
 
 scheduler:
   enabled: true
-  embedded: false   # false = use `bobaclaw scheduler start` daemon
-  tick_secs: 15
+  embedded: false   # true = also run inside `bobaclaw chat`; gateway/telegram always in-process
+  tick_secs: 5      # max poll interval; one-shot tasks wake the scheduler sooner
 
 # Recurring jobs (cron syntax, 5 fields: min hour dom month dow)
 cron:

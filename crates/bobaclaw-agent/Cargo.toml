@@ -13,6 +13,7 @@ bobaclaw-skills.workspace = true
 bobaclaw-state.workspace = true
 bobaclaw-mcp.workspace = true
 chrono.workspace = true
+cron = "0.15"
 serde.workspace = true
 serde_json.workspace = true
 sqlx.workspace = true

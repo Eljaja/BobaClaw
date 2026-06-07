@@ -6,7 +6,7 @@ use bobaclaw_core::{
     NormalizedRequest, TelegramFormat, TrustDecision, TrustInput, WorkspaceAttachment,
 };
 use bobaclaw_state::{PairingStore, SessionStore, StateDb};
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 use crate::api::TelegramApi;
 use crate::commands::{parse_slash_command, telegram_help_text};
@@ -31,6 +31,11 @@ pub async fn run_telegram_polling(
         "telegram bot connected: id={} username={:?}",
         me.id, me.username
     );
+    if let Err(e) = api.delete_webhook().await {
+        warn!("telegram deleteWebhook: {e}");
+    } else {
+        info!("telegram webhook cleared (long-poll mode)");
+    }
     if let Err(e) = api.set_my_commands().await {
         warn!("telegram setMyCommands: {e}");
     }
@@ -50,8 +55,19 @@ pub async fn run_telegram_polling(
         let updates = match api.get_updates(offset, 50).await {
             Ok(u) => u,
             Err(e) => {
-                warn!("telegram getUpdates: {e}");
-                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                let msg = e.to_string();
+                if msg.contains("Conflict") || msg.contains("409") {
+                    error!(
+                        "telegram getUpdates conflict: another bobaclaw/gateway/channel process is \
+                         already polling this bot token. Stop all duplicates (host binary, second \
+                         container, old compose stack). Only one getUpdates client is allowed. \
+                         detail: {e}"
+                    );
+                    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                } else {
+                    warn!("telegram getUpdates: {e}");
+                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                }
                 continue;
             }
         };
