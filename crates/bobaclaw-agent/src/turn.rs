@@ -45,6 +45,7 @@ pub struct TurnOutcome {
     pub text: String,
     /// Stored in session DB; may include a `<!-- tool-results -->` appendix for the next turn.
     pub persisted_assistant: String,
+    #[allow(dead_code)]
     pub session_id: String,
     pub last_run_id: Option<String>,
     pub executed: bool,
@@ -55,6 +56,7 @@ pub struct TurnOutcome {
     pub review_snapshot: String,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run_agent_turn(
     paths: &BobaPaths,
     config: &BobaConfig,
@@ -406,6 +408,7 @@ fn is_turn_interrupted(err: &anyhow::Error) -> bool {
     err.is::<TurnInterrupted>() || err.downcast_ref::<TurnInterrupted>().is_some()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn finish_interrupted(
     partial_text: String,
     tool_persist: Vec<ToolPersistEntry>,
@@ -434,6 +437,7 @@ fn finish_interrupted(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_tool_call(
     paths: &BobaPaths,
     config: &BobaConfig,

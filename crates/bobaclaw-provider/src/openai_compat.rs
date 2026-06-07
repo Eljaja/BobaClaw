@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use bobaclaw_core::ProviderConfig;
 use serde::{Deserialize, Serialize};
 
@@ -105,22 +104,11 @@ fn extract_assistant_text(msg: &ApiMessage) -> String {
 }
 
 #[derive(Deserialize)]
+#[allow(dead_code)]
 struct ApiMessage {
     role: String,
     #[serde(default)]
     content: Option<serde_json::Value>,
     #[serde(default)]
     reasoning: Option<String>,
-}
-
-#[async_trait]
-pub trait LlmProvider: Send + Sync {
-    async fn complete(&self, messages: Vec<ChatMessage>) -> anyhow::Result<String>;
-}
-
-#[async_trait]
-impl LlmProvider for OpenAiCompatProvider {
-    async fn complete(&self, messages: Vec<ChatMessage>) -> anyhow::Result<String> {
-        self.chat_completion(messages, None).await
-    }
 }

@@ -21,13 +21,16 @@ pub async fn deliver_message(
                 .await?;
             Ok(())
         }
-        "cli" | _ => {
-            let outbox = paths_home.join("outbox");
-            std::fs::create_dir_all(&outbox)?;
-            let path = outbox.join(format!("due_{}.txt", chrono::Utc::now().timestamp()));
-            std::fs::write(&path, text)?;
-            tracing::info!("scheduled delivery written to {}", path.display());
-            Ok(())
-        }
+        "cli" => write_outbox(paths_home, text),
+        _ => write_outbox(paths_home, text),
     }
+}
+
+fn write_outbox(paths_home: &Path, text: &str) -> anyhow::Result<()> {
+    let outbox = paths_home.join("outbox");
+    std::fs::create_dir_all(&outbox)?;
+    let path = outbox.join(format!("due_{}.txt", chrono::Utc::now().timestamp()));
+    std::fs::write(&path, text)?;
+    tracing::info!("scheduled delivery written to {}", path.display());
+    Ok(())
 }

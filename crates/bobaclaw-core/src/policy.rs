@@ -39,14 +39,14 @@ fn evaluate_dm(cfg: &TelegramConfig, user_id: i64, pairing_code: Option<String>)
     match cfg.dm_policy {
         DmPolicy::Open => TrustDecision::Allow,
         DmPolicy::Allowlist => {
-            if cfg.allow_from.iter().any(|&id| id == user_id) {
+            if cfg.allow_from.contains(&user_id) {
                 TrustDecision::Allow
             } else {
                 TrustDecision::Deny
             }
         }
         DmPolicy::Pairing => {
-            if cfg.allow_from.iter().any(|&id| id == user_id) {
+            if cfg.allow_from.contains(&user_id) {
                 TrustDecision::Allow
             } else if let Some(code) = pairing_code {
                 TrustDecision::PendingPairing { code }
@@ -67,7 +67,7 @@ fn evaluate_group(
     let allowed = match cfg.group_policy {
         GroupPolicy::Disabled => return TrustDecision::Deny,
         GroupPolicy::Open => true,
-        GroupPolicy::Allowlist => cfg.allowed_groups.iter().any(|&id| id == chat_id),
+        GroupPolicy::Allowlist => cfg.allowed_groups.contains(&chat_id),
     };
     if !allowed {
         return TrustDecision::Deny;
@@ -113,9 +113,11 @@ mod tests {
 
     #[test]
     fn dm_allowlist_blocks_unknown() {
-        let mut cfg = TelegramConfig::default();
-        cfg.dm_policy = DmPolicy::Allowlist;
-        cfg.allow_from = vec![42];
+        let cfg = TelegramConfig {
+            dm_policy: DmPolicy::Allowlist,
+            allow_from: vec![42],
+            ..Default::default()
+        };
         let peer = ChannelPeer::telegram(42, None);
         let input = TrustInput {
             peer: &peer,
@@ -132,9 +134,11 @@ mod tests {
 
     #[test]
     fn group_requires_mention() {
-        let mut cfg = TelegramConfig::default();
-        cfg.group_policy = GroupPolicy::Open;
-        cfg.group_require_mention = true;
+        let cfg = TelegramConfig {
+            group_policy: GroupPolicy::Open,
+            group_require_mention: true,
+            ..Default::default()
+        };
         let peer = ChannelPeer::telegram(-100123, None);
         let input = TrustInput {
             peer: &peer,

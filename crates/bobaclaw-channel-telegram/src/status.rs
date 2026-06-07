@@ -1,6 +1,6 @@
 //! User-visible activity text while the agent runs (Telegram message edits).
 
-use bobaclaw_agent::{format_step_block, ActivityLog, AgentEvent};
+use bobaclaw_agent::ActivityLog;
 
 const HEADER: &str = "BobaClaw\n────────";
 /// Telegram message body limit minus header and formatting slack.
@@ -27,6 +27,7 @@ pub fn render_activity_log(log: &ActivityLog) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bobaclaw_agent::{format_step_block, AgentEvent};
 
     #[test]
     fn tool_end_no_html_dump() {

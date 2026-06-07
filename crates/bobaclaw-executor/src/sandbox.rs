@@ -206,11 +206,6 @@ pub fn adapt_command_for_sandbox(command: &str, mode: SandboxCommandMode) -> Str
     }
 }
 
-/// Back-compat alias for bwrap-only call sites.
-pub fn adapt_command_for_package_sandbox(command: &str) -> String {
-    adapt_command_for_sandbox(command, SandboxCommandMode::BwrapPackages)
-}
-
 fn strip_leading_sudo(command: &str) -> String {
     let mut cmd = command.to_string();
     for prefix in ["sudo -n ", "sudo "] {
@@ -262,7 +257,8 @@ mod tests {
 
     #[test]
     fn adapt_strips_sudo_and_injects_apt_config() {
-        let out = adapt_command_for_package_sandbox("sudo apt-get update");
+        let out =
+            adapt_command_for_sandbox("sudo apt-get update", SandboxCommandMode::BwrapPackages);
         assert!(!out.contains("sudo"));
         assert!(out.contains("APT_CONFIG"));
         assert!(out.contains("apt-get update"));
@@ -270,7 +266,8 @@ mod tests {
 
     #[test]
     fn adapt_leaves_unrelated_commands() {
-        let out = adapt_command_for_package_sandbox("curl -fsS example.com");
+        let out =
+            adapt_command_for_sandbox("curl -fsS example.com", SandboxCommandMode::BwrapPackages);
         assert_eq!(out, "curl -fsS example.com");
     }
 

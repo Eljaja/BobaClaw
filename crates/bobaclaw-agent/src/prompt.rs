@@ -163,10 +163,7 @@ pub fn strip_summary_prefix(content: &str) -> String {
     if let Some(rest) = s.strip_prefix(LEGACY) {
         s = rest.trim();
         if let Some(after) = s.strip_prefix("Treat as background only") {
-            return after
-                .trim()
-                .trim_start_matches(|c| c == ' ' || c == ';' || c == ':')
-                .to_string();
+            return after.trim().trim_start_matches([' ', ';', ':']).to_string();
         }
     }
     s.to_string()

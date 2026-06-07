@@ -1,45 +1,27 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ChannelsConfig {
     #[serde(default)]
     pub telegram: TelegramConfig,
 }
 
-impl Default for ChannelsConfig {
-    fn default() -> Self {
-        Self {
-            telegram: TelegramConfig::default(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DmPolicy {
     Open,
     Allowlist,
+    #[default]
     Pairing,
 }
 
-impl Default for DmPolicy {
-    fn default() -> Self {
-        DmPolicy::Pairing
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GroupPolicy {
     Open,
+    #[default]
     Allowlist,
     Disabled,
-}
-
-impl Default for GroupPolicy {
-    fn default() -> Self {
-        GroupPolicy::Allowlist
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -151,16 +133,10 @@ impl TelegramConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RoutingConfig {
     #[serde(default)]
     pub rules: Vec<RoutingRule>,
-}
-
-impl Default for RoutingConfig {
-    fn default() -> Self {
-        Self { rules: Vec::new() }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -212,8 +188,10 @@ mod tests {
 
     #[test]
     fn resolve_proxy_prefers_inline_url() {
-        let mut c = TelegramConfig::default();
-        c.proxy_url = "http://127.0.0.1:7890".into();
+        let c = TelegramConfig {
+            proxy_url: "http://127.0.0.1:7890".into(),
+            ..Default::default()
+        };
         assert_eq!(c.resolve_proxy().as_deref(), Some("http://127.0.0.1:7890"));
     }
 }

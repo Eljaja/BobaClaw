@@ -58,12 +58,12 @@ impl ChatUi {
         interrupt_listener.abort();
         let _ = spinner.await;
         clear_line();
-        result.map(|resp| {
-            self.print_response(&resp);
-            resp
+        result.inspect(|resp| {
+            self.print_response(resp);
         })
     }
 
+    #[allow(dead_code)]
     pub async fn run_agent_turn(
         &self,
         agent: &AgentLoop,
@@ -97,9 +97,8 @@ impl ChatUi {
         interrupt_listener.abort();
         let _ = spinner.await;
         clear_line();
-        result.map(|resp| {
-            self.print_response(&resp);
-            resp
+        result.inspect(|resp| {
+            self.print_response(resp);
         })
     }
 

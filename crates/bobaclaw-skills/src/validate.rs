@@ -24,9 +24,7 @@ pub fn validate_name(name: &str) -> Option<String> {
 }
 
 pub fn validate_category(category: Option<&str>) -> Option<String> {
-    let Some(category) = category else {
-        return None;
-    };
+    let category = category?;
     let category = category.trim();
     if category.is_empty() {
         return None;

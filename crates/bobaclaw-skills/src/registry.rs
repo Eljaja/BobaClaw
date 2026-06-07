@@ -138,6 +138,19 @@ fn parse_skill(path: &Path) -> anyhow::Result<SkillEntry> {
     })
 }
 
+fn split_frontmatter(raw: &str) -> (&str, &str) {
+    let Some(rest) = raw.strip_prefix("---") else {
+        return ("", raw);
+    };
+    if let Some(end) = rest.find("\n---") {
+        let front = &rest[..end];
+        let body = &rest[end + 4..];
+        (front, body)
+    } else {
+        ("", raw)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -184,15 +197,4 @@ mod tests {
         let reg = SkillRegistry::load(dir.path()).unwrap();
         assert!(reg.match_request("please run demo skill").is_some());
     }
-}
-
-fn split_frontmatter(raw: &str) -> (&str, &str) {
-    if raw.starts_with("---") {
-        if let Some(end) = raw[3..].find("\n---") {
-            let front = &raw[3..3 + end];
-            let body = &raw[3 + end + 4..];
-            return (front, body);
-        }
-    }
-    ("", raw)
 }

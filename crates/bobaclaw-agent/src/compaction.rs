@@ -26,10 +26,7 @@ fn previous_summary_body(rows: &[(String, String)]) -> Option<String> {
     }
 }
 
-fn summarize_slice<'a>(
-    rows: &'a [(String, String)],
-    tail_keep: usize,
-) -> Option<&'a [(String, String)]> {
+fn summarize_slice(rows: &[(String, String)], tail_keep: usize) -> Option<&[(String, String)]> {
     let start = last_compaction_index(rows).map(|i| i + 1).unwrap_or(0);
     let end = rows.len().saturating_sub(tail_keep.max(1));
     if end <= start || end - start < 2 {

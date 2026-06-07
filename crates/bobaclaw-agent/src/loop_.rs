@@ -26,6 +26,7 @@ pub struct AgentLoop {
     paths: BobaPaths,
     config: BobaConfig,
     state: StateDb,
+    #[allow(dead_code)]
     skills: SkillRegistry,
     mcp: Arc<McpHub>,
 }

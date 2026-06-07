@@ -67,7 +67,7 @@ impl WorkspaceAttachment {
         format!("[{}:{}]", self.kind.tag_prefix(), self.workspace_rel)
     }
 
-    fn host_path<'a>(&self, workspace: &'a Path) -> std::path::PathBuf {
+    fn host_path(&self, workspace: &Path) -> std::path::PathBuf {
         workspace.join(&self.workspace_rel)
     }
 

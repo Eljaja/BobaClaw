@@ -24,6 +24,7 @@ impl<'a> ScheduledTaskStore<'a> {
         Self { pool }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn insert(
         &self,
         agent_group: &str,

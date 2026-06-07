@@ -122,7 +122,7 @@ async fn handle_slash(
     let cmd = parts.first().copied().unwrap_or("");
 
     match cmd {
-        "/quit" | "/exit" | "/q" => return Ok(Some("__QUIT__".into())),
+        "/quit" | "/exit" | "/q" => Ok(Some("__QUIT__".into())),
         "/help" | "/h" | "/?" => Ok(Some(help_text())),
         "/new" | "/clear" => {
             let n = SessionStore::new(pool)
@@ -179,7 +179,7 @@ async fn handle_slash(
         "/doctor" => {
             let mut out = String::from("doctor (кратко):\n");
             match config.resolve_api_key() {
-                Ok(_) => out.push_str(&format!("  api key: OK\n")),
+                Ok(_) => out.push_str("  api key: OK\n"),
                 Err(e) => out.push_str(&format!("  api key: {e}\n")),
             }
             let b = bobaclaw_executor::check_bwrap();

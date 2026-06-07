@@ -58,6 +58,7 @@ pub struct ExecToolResult {
     pub exit_code: i32,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn handle_exec_tool(
     paths: &BobaPaths,
     config: &BobaConfig,

@@ -55,6 +55,27 @@ impl<'a> RouteStore<'a> {
     }
 }
 
+pub async fn create_session_for_route(
+    pool: &SqlitePool,
+    source: &str,
+    agent_group: &str,
+    user_id: Option<&str>,
+) -> anyhow::Result<String> {
+    let id = format!("sess_{}", Uuid::new_v4());
+    let now = Utc::now().timestamp_millis() as f64 / 1000.0;
+    sqlx::query(
+        "INSERT INTO sessions (id, source, agent_group, user_id, started_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+    )
+    .bind(&id)
+    .bind(source)
+    .bind(agent_group)
+    .bind(user_id)
+    .bind(now)
+    .execute(pool)
+    .await?;
+    Ok(id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -97,25 +118,4 @@ mod tests {
         .unwrap();
         assert_eq!(thread, "");
     }
-}
-
-pub async fn create_session_for_route(
-    pool: &SqlitePool,
-    source: &str,
-    agent_group: &str,
-    user_id: Option<&str>,
-) -> anyhow::Result<String> {
-    let id = format!("sess_{}", Uuid::new_v4());
-    let now = Utc::now().timestamp_millis() as f64 / 1000.0;
-    sqlx::query(
-        "INSERT INTO sessions (id, source, agent_group, user_id, started_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-    )
-    .bind(&id)
-    .bind(source)
-    .bind(agent_group)
-    .bind(user_id)
-    .bind(now)
-    .execute(pool)
-    .await?;
-    Ok(id)
 }

@@ -11,6 +11,7 @@ pub struct InboundMessage {
     pub user_name: Option<String>,
     pub text: String,
     pub message_id: i64,
+    #[allow(dead_code)]
     pub reply_to_message_id: Option<i64>,
     pub is_bot_mentioned: bool,
     pub is_reply_to_bot: bool,
@@ -102,6 +103,7 @@ fn message_mentions_bot(msg: &Message, bot_id: i64, bot_username: Option<&str>) 
     false
 }
 
+#[allow(dead_code)]
 pub fn display_user(user: &User) -> String {
     user.username
         .as_ref()

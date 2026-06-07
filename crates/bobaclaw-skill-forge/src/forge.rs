@@ -236,13 +236,14 @@ fn suggest_name(run_id: &str) -> String {
 }
 
 fn parse_name_from_skill(md: &str) -> anyhow::Result<String> {
-    if md.starts_with("---") {
-        if let Some(end) = md[3..].find("\n---") {
-            let front = &md[3..3 + end];
-            let fm: serde_yaml::Value = serde_yaml::from_str(front)?;
-            if let Some(name) = fm.get("name").and_then(|v| v.as_str()) {
-                return Ok(name.to_string());
-            }
+    let Some(rest) = md.strip_prefix("---") else {
+        anyhow::bail!("SKILL.md missing name in frontmatter");
+    };
+    if let Some(end) = rest.find("\n---") {
+        let front = &rest[..end];
+        let fm: serde_yaml::Value = serde_yaml::from_str(front)?;
+        if let Some(name) = fm.get("name").and_then(|v| v.as_str()) {
+            return Ok(name.to_string());
         }
     }
     anyhow::bail!("SKILL.md missing name in frontmatter")

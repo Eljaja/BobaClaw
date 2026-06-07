@@ -184,7 +184,7 @@ impl Renderer {
             TagEnd::Link => {
                 if let Some(url) = self.link_url.take() {
                     if self.color {
-                        self.line.push_str(&format!("{RESET}"));
+                        self.line.push_str(RESET);
                         self.write_styled(&format!(" ({url})"), Some(META.open));
                     } else {
                         self.line.push_str(&format!(" ({url})"));
