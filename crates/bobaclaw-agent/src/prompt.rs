@@ -79,7 +79,9 @@ Tools named `mcp_<server>_<tool>` call external MCP servers configured in `confi
 They run on the host and may use network or credentials you configured. \
 Use MCP only through the tool API (JSON-RPC), not by piping shell commands into an MCP process. \
 Prefer MCP when a configured tool fits; use `exec` for workspace shell work. \
-For Obscura `browser_navigate`, BobaClaw defaults to `waitUntil: domcontentloaded` (not `load`) so heavy pages do not hang.";
+For Obscura `browser_navigate`, BobaClaw defaults to `waitUntil: domcontentloaded` (not `load`) so heavy pages do not hang.\n\
+When you use browser MCP tools to read or search the web, end the user-facing answer with a **Sources** section: \
+one markdown link per URL you actually visited this turn. Do not invent URLs. Omit Sources if you did not browse.";
 
 const LANGUAGE_HINT: &str = "# Language\n\
 System instructions are in English. Reply in the same language the user writes in unless they ask otherwise.";
@@ -340,6 +342,12 @@ mod tests {
     use super::*;
     use bobaclaw_core::BobaPaths;
     use bobaclaw_skills::SkillRegistry;
+
+    #[test]
+    fn mcp_hint_requires_browser_sources() {
+        assert!(super::MCP_HINT.contains("Sources"));
+        assert!(super::MCP_HINT.contains("browser_navigate"));
+    }
 
     #[test]
     fn strip_summary_prefix_roundtrip() {
