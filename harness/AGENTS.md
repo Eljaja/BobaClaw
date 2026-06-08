@@ -22,6 +22,7 @@ Distinction:
 |------|---------|
 | `tool-contract-template.md` | Template for new tools |
 | `tools/*.md` | Filled contracts for shipped runtime tools |
+| `channels/*.md` | Channel delivery contracts (Telegram, etc.) |
 | `sandbox-contract.md` | Executor boundary model (ADR 003) |
 | `policy.md` | Risk classes and approval rules |
 
