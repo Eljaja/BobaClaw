@@ -247,7 +247,7 @@ fn help_text() -> String {
   /skills          skills в workspace
   /doctor          проверка окружения
 
-Отложенные задачи: tool schedule; список: bobaclaw schedule list
-  Планировщик: bobaclaw scheduler start (daemon, отдельный терминал)"#
+Отложенные задачи: tools schedule / schedule_recurring / schedule_list / schedule_cancel
+  Планировщик: в gateway и channel telegram автоматически; опционально bobaclaw scheduler start"#
         .to_string()
 }

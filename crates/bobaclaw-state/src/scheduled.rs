@@ -132,6 +132,16 @@ impl<'a> ScheduledTaskStore<'a> {
         .await?;
         Ok(r.rows_affected() > 0)
     }
+
+    /// Earliest pending run_at, for adaptive scheduler sleep.
+    pub async fn next_pending_run_at(&self) -> anyhow::Result<Option<f64>> {
+        let t = sqlx::query_scalar::<_, f64>(
+            "SELECT run_at FROM scheduled_tasks WHERE status = 'pending' ORDER BY run_at ASC LIMIT 1",
+        )
+        .fetch_optional(self.pool)
+        .await?;
+        Ok(t)
+    }
 }
 
 #[derive(sqlx::FromRow)]

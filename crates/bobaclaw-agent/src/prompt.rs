@@ -61,10 +61,12 @@ treat that block as authoritative command output (not user-facing prose).\n\
 - If `apt` fails with setuid/setgroups errors, retry with `apt-get -o APT::Sandbox::User=root` or check `bobaclaw doctor`; do not send the user to a host shell.";
 
 const SCHEDULING_HINT: &str = "# Scheduling\n\
-Use the `schedule` tool for one-shot delayed work (reminders, \"message me in 5 minutes\", run a prompt later). \
-`delay_seconds` + `prompt`; optional `deliver_message` for the exact text to send. \
-Recurring jobs are in `config.yaml` under `cron.jobs`; run `bobaclaw scheduler start` as a daemon. \
-Do not tell the user you lack a scheduler — use `schedule` or explain cron config.";
+Use `schedule` for one-shot delayed work (reminders, \"message me in 5 minutes\"). \
+Set `deliver_message` to the exact user-facing text when no agent work is needed at fire time. \
+Use `schedule_recurring` for cron-style repeats (5-field cron: min hour dom month dow). \
+Use `schedule_list` / `schedule_cancel` to inspect or remove jobs. \
+The scheduler runs inside gateway and `channel telegram start`; optional daemon: `bobaclaw scheduler start`. \
+Do not tell the user you lack a scheduler — use these tools.";
 
 const SKILLS_HINT: &str = "# Skills\n\
 When a skill matches the request, follow its SKILL.md (use skill_view to read one). \

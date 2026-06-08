@@ -98,6 +98,23 @@ impl TelegramApi {
         Ok(())
     }
 
+    /// Drop webhook so long-polling (`getUpdates`) can receive messages.
+    pub async fn delete_webhook(&self) -> anyhow::Result<()> {
+        #[derive(Serialize)]
+        struct Body {
+            drop_pending_updates: bool,
+        }
+        let _: bool = self
+            .call(
+                "deleteWebhook",
+                &Body {
+                    drop_pending_updates: false,
+                },
+            )
+            .await?;
+        Ok(())
+    }
+
     pub async fn get_updates(&self, offset: i64, timeout_secs: u32) -> anyhow::Result<Vec<Update>> {
         #[derive(Serialize)]
         struct Body<'a> {

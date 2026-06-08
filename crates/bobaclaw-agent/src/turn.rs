@@ -15,7 +15,7 @@ use crate::prompt::build_system_prompt;
 use crate::review::build_review_snapshot;
 use crate::tools::{
     exec_tool_spec, handle_exec_tool, handle_mcp_tool, handle_schedule_tool, handle_skill_tool,
-    is_mcp_tool, is_skill_tool, schedule_tool_spec, skill_tool_specs, SKILL_MANAGE,
+    is_mcp_tool, is_skill_tool, schedule_tool_specs, skill_tool_specs, SKILL_MANAGE,
 };
 
 const MAX_TOOL_ITERATIONS: usize = 16;
@@ -124,7 +124,8 @@ pub async fn run_agent_turn(
     let api_key = config.resolve_api_key()?;
     let client = ToolChatClient::from_provider(&config.provider, api_key)?;
     let tools: Vec<ToolSpec> = {
-        let mut t = vec![exec_tool_spec(), schedule_tool_spec()];
+        let mut t = vec![exec_tool_spec()];
+        t.extend(schedule_tool_specs());
         t.extend(skill_tool_specs());
         if let Some(hub) = mcp {
             t.extend(hub.tool_specs());
@@ -455,7 +456,10 @@ async fn run_tool_call(
         return Err(TurnInterrupted.into());
     }
     let name = call.function.name.clone();
-    let (body, exit_code) = if name == "schedule" {
+    let (body, exit_code) = if matches!(
+        name.as_str(),
+        "schedule" | "schedule_recurring" | "schedule_list" | "schedule_cancel"
+    ) {
         let body = handle_schedule_tool(pool, &req.agent_group, session_id, req, call).await?;
         *executed = true;
         (body, 0)

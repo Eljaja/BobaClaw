@@ -18,7 +18,7 @@ Approval: not required.
 - changing CI/CD or harness docs;
 - changing `prompt.rs` or tool schemas;
 - `skill_manage` create/patch in workspace;
-- `schedule` within delay limits;
+- `schedule`, `schedule_recurring`, `schedule_list`, `schedule_cancel` within delay/cron limits;
 - `exec` in default sandbox without network;
 - adding Rust dependencies.
 

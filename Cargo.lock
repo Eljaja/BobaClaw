@@ -234,6 +234,7 @@ dependencies = [
  "bobaclaw-skills",
  "bobaclaw-state",
  "chrono",
+ "cron",
  "serde",
  "serde_json",
  "sqlx",

@@ -41,7 +41,7 @@ cd references/<name> && git pull
 | `bobaclaw-state` | SQLite WAL (`state.db`): sessions, messages, **FTS5 schema**, runs/run_events, pairing, routes, cron, scheduled_tasks, skill_drafts |
 | `bobaclaw-provider` | OpenAI-compatible chat + tool loop |
 | `bobaclaw-executor` | bubblewrap profiles (`bwrap-default`, networked, readonly); run ledger + capsules |
-| `bobaclaw-agent` | Agent loop, compaction (LLM-summarize), tools: `exec`, `schedule`, MCP |
+| `bobaclaw-agent` | Agent loop, compaction (LLM-summarize), tools: `exec`, `schedule` / `schedule_recurring` / `schedule_list` / `schedule_cancel`, MCP |
 | `bobaclaw-gateway` | axum: `/health`, `/v1/chat/completions`, `/api/agent`; embedded scheduler + optional telegram poll |
 | `bobaclaw-channel-telegram` | Long-poll, pairing, group policies, media download, streaming `editMessageText` |
 | `bobaclaw-scheduler` | Cron из config + one-shot tasks; embedded или daemon с pidfile |
@@ -57,7 +57,7 @@ cd references/<name> && git pull
 | **Gateway** | axum: `/health`, `/v1/chat/completions`, `/api/agent` |
 | **Каналы** | Только **Telegram** (pairing, groups, streaming edit, медиа) |
 | **Sandbox** | bubblewrap (`bwrap-default`); tools: `exec`, `schedule`, `mcp_*` |
-| **Автоматизация** | cron в config + one-shot `schedule` + `scheduler start` |
+| **Автоматизация** | Agent tools `schedule` + `schedule_recurring`; config cron; in-process scheduler в gateway/telegram |
 | **Память** | SQLite sessions + **FTS5 schema** + markdown workspace |
 | **Skills** | `SKILL.md` registry, guard, Skill Forge (`draft-from-run` → `promote`) |
 | **MCP** | rmcp child-process hub |
