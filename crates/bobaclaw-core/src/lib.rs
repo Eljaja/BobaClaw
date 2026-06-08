@@ -11,11 +11,11 @@ pub mod scheduler;
 pub mod truncate;
 pub mod turn;
 
+pub use agent_config::AgentConfig;
 pub use channels::{
     ChannelPeer, ChannelsConfig, DmPolicy, GroupPolicy, RouteMatch, RoutingConfig, RoutingRule,
     TelegramConfig, TelegramFormat,
 };
-pub use agent_config::AgentConfig;
 pub use config::{
     BobaConfig, DockerExecutorConfig, ExecutorBackend, ExecutorConfig, GatewayConfig,
     ProviderConfig,

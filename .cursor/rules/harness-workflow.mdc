@@ -10,8 +10,9 @@ Before non-trivial edits:
 1. Read root `AGENTS.md` and the nearest nested `AGENTS.md`.
 2. For multi-file, CI, harness, security, or agent-generated work — create/update a plan in `plans/active/` from `plans/templates/agent-change-plan.md`.
 3. Keep diffs small; do not mix refactors with unrelated docs or CI.
-4. Run `make ci` before handoff.
-5. Summarize: changed files, validation commands, known gaps, rollback path.
+4. After editing `crates/**/*.rs`, ensure formatting passes: `make fmt-check` (or `cargo fmt --all -- --check` in WSL). Project hooks auto-run `cargo fmt` on `.rs` edits and `cargo fmt --all -- --check` on agent stop (`.cursor/hooks.json`).
+5. Run `make ci` before handoff.
+6. Summarize: changed files, validation commands, known gaps, rollback path.
 
 Never commit secrets, `.env`, or `target/` artifacts. Use WSL for `cargo`, `make`, and integration scripts on this machine.
 
