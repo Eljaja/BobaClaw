@@ -61,11 +61,12 @@ fn recurring_spec() -> ToolSpec {
         kind: "function".into(),
         function: FunctionSpec {
             name: TOOL_SCHEDULE_RECURRING.into(),
-            description: "Create a recurring cron job. Standard 5-field cron: \"min hour dom month dow\" \
+            description:
+                "Create a recurring cron job. Standard 5-field cron: \"min hour dom month dow\" \
                 (e.g. \"0 9 * * 1\" = Mondays 09:00 UTC, \"*/5 * * * *\" = every 5 minutes). \
                 At each fire the agent runs `prompt` and delivers to this chat. \
                 Use `schedule_list` / `schedule_cancel` to manage jobs."
-                .into(),
+                    .into(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -97,7 +98,8 @@ fn list_spec() -> ToolSpec {
         kind: "function".into(),
         function: FunctionSpec {
             name: TOOL_SCHEDULE_LIST.into(),
-            description: "List pending one-shot scheduled tasks and active recurring cron jobs.".into(),
+            description: "List pending one-shot scheduled tasks and active recurring cron jobs."
+                .into(),
             parameters: json!({
                 "type": "object",
                 "properties": {},
@@ -112,7 +114,9 @@ fn cancel_spec() -> ToolSpec {
         kind: "function".into(),
         function: FunctionSpec {
             name: TOOL_SCHEDULE_CANCEL.into(),
-            description: "Cancel a pending one-shot task (sched_…) or disable a recurring job (cron_…).".into(),
+            description:
+                "Cancel a pending one-shot task (sched_…) or disable a recurring job (cron_…)."
+                    .into(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -231,15 +235,19 @@ async fn handle_recurring(
     if cron_expr.is_empty() {
         anyhow::bail!("cron expression is empty");
     }
-    Schedule::from_str(cron_expr)
-        .map_err(|e| anyhow::anyhow!("invalid cron expression: {e}"))?;
+    Schedule::from_str(cron_expr).map_err(|e| anyhow::anyhow!("invalid cron expression: {e}"))?;
 
     let prompt = args.prompt.trim();
     if prompt.is_empty() {
         anyhow::bail!("prompt is empty");
     }
 
-    let id = match args.job_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    let id = match args
+        .job_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         Some(custom) => {
             if !custom
                 .chars()

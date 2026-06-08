@@ -315,14 +315,8 @@ async fn run_due_cron(
         match run_result {
             Ok(text) => {
                 if let Some(channel) = deliver_channel {
-                    if let Err(e) = deliver_message(
-                        config,
-                        &paths.home,
-                        channel,
-                        deliver_peer,
-                        &text,
-                    )
-                    .await
+                    if let Err(e) =
+                        deliver_message(config, &paths.home, channel, deliver_peer, &text).await
                     {
                         warn!("cron {} deliver: {e}", job.id);
                     }
