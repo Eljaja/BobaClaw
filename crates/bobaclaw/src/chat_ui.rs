@@ -146,6 +146,9 @@ impl ChatUi {
                 AgentEvent::AssistantChunk { .. } => "\x1b[36m",
                 AgentEvent::EmptyResponseRetry { .. } => "\x1b[35m",
                 AgentEvent::Interrupted => "\x1b[33m",
+                AgentEvent::SubagentStart { .. } => "\x1b[36m",
+                AgentEvent::SubagentEnd { exit_code, .. } if *exit_code == 0 => "\x1b[32m",
+                AgentEvent::SubagentEnd { .. } => "\x1b[31m",
             };
             for line in block.lines() {
                 eprintln!("{accent}  │ {line}\x1b[0m");

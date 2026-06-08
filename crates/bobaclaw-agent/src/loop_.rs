@@ -8,6 +8,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::progress::AgentProgress;
 use crate::review::{maybe_post_turn_review, PostTurnSave, TurnReviewMetrics};
+use crate::subagent::SubagentManager;
 use crate::turn::run_agent_turn;
 
 #[derive(Debug, Clone)]
@@ -31,6 +32,7 @@ pub struct AgentLoop {
     #[allow(dead_code)]
     skills: SkillRegistry,
     mcp: Arc<McpHub>,
+    subagent: Arc<SubagentManager>,
 }
 
 impl AgentLoop {
@@ -39,12 +41,14 @@ impl AgentLoop {
         let group = &config.default_agent_group;
         let skills = SkillRegistry::load_enabled(&paths.group_workspace(group))?;
         let mcp = Arc::new(McpHub::connect(&config.mcp_servers).await);
+        let subagent = Arc::new(SubagentManager::new(paths.clone(), config.clone()));
         Ok(Self {
             paths,
             config,
             state,
             skills,
             mcp,
+            subagent,
         })
     }
 
@@ -82,6 +86,7 @@ impl AgentLoop {
             &req,
             progress,
             &cancel,
+            Some(self.subagent.as_ref()),
         )
         .await?;
 

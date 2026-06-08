@@ -155,7 +155,7 @@ cd references/<name> && git pull
 | Другие каналы | ❌ | ✅ 20+ | ✅ 6+ | мало | ✅ 19 | ✅ 15+ |
 | Sandbox | bwrap | Docker/SSH | cloud | **Docker** | WASM/Docker | container |
 | Web UI | ❌ | ✅ apps | dashboard | ❌ | ❌ | ✅ |
-| Subagents | ❌ | ✅ | ✅ | ❌ | ✅ | ✅ |
+| Subagents | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ |
 | FTS memory | schema | ✅ | ✅ | SQLite | ✅ hybrid | JSONL |
 | Skill auto-gen | manual Forge | ClawHub | **loop** | ❌ | ❌ | hub UI |
 | Wizard | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ |
@@ -166,7 +166,7 @@ cd references/<name> && git pull
 
 1. **P0:** второй канал (по образцу `bobaclaw-channel-telegram`); systemd unit для gateway+scheduler; secondary model + failover в `bobaclaw-provider`; approval flow поверх таблицы `approvals`.
 2. **P1:** `bobaclaw search` на `messages_fts`; minimal Web status (health + sessions) по мотивам PicoClaw `web/`; `web_fetch` tool; `bobaclaw onboard`.
-3. **P2:** subagent spawn (PicoClaw pattern); streaming в gateway; optional Docker executor profile.
+3. **P2:** streaming в gateway; optional Docker executor profile. (Subagents: native `subagent` + `spawn` — see `harness/tools/subagent.md`.)
 4. **P3:** только при явной потребности (edge binary, mobile nodes).
 
 ---

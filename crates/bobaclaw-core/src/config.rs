@@ -5,6 +5,7 @@ use crate::channels::{ChannelsConfig, RoutingConfig};
 use crate::context_config::ContextConfig;
 use crate::mcp::McpServers;
 use crate::scheduler::{CronConfig, SchedulerConfig};
+use crate::subagent_config::SubagentConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BobaConfig {
@@ -28,6 +29,8 @@ pub struct BobaConfig {
     pub cron: CronConfig,
     #[serde(default, rename = "mcp_servers")]
     pub mcp_servers: McpServers,
+    #[serde(default)]
+    pub subagents: SubagentConfig,
     #[serde(default = "default_agent_group")]
     pub default_agent_group: String,
 }
@@ -49,6 +52,7 @@ impl Default for BobaConfig {
             scheduler: SchedulerConfig::default(),
             cron: CronConfig::default(),
             mcp_servers: McpServers::default(),
+            subagents: SubagentConfig::default(),
             default_agent_group: default_agent_group(),
         }
     }
@@ -239,6 +243,29 @@ impl BobaConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn load_subagents_section() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.yaml");
+        std::fs::write(
+            &path,
+            "subagents:\n  enabled: false\n  max_concurrent: 3\n  presets:\n    researcher:\n      model: gpt-4o-mini\n",
+        )
+        .unwrap();
+        let loaded = BobaConfig::load(&path).unwrap();
+        assert!(!loaded.subagents.enabled);
+        assert_eq!(loaded.subagents.max_concurrent, 3);
+        assert_eq!(
+            loaded
+                .subagents
+                .preset("researcher")
+                .unwrap()
+                .model
+                .as_deref(),
+            Some("gpt-4o-mini")
+        );
+    }
 
     #[test]
     fn resolve_inline_api_key() {

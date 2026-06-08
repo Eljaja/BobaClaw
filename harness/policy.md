@@ -30,6 +30,7 @@ Approval: usually not required; requires plan and PR notes for multi-file work.
 - `host-danger` profile;
 - `exec` with network on production gateway;
 - MCP tools with browser/network (Obscura);
+- `subagent` with external backends (`claude-code`, `codex`, `cursor`) — separate API keys, longer sandbox runs, disabled by default;
 - pairing/auth/channel policy changes;
 - deploy workflow or release automation;
 - deleting persistent state or migrations.

@@ -45,6 +45,16 @@ Runtime injects this file plus optional `SOUL.md`, `USER.md`, `TOOLS.md`, `MEMOR
 - **Daemon**: `bobaclaw scheduler start` (отдельный процесс; держите его запущенным для отложенных задач).
 - Опционально `scheduler.embedded: true` — встроить планировщик в `chat`/`gateway` (не рекомендуется).
 
+## Subagents
+
+- Use **`subagent`** for multi-step or context-heavy slices (many files, research sweeps) — not for one-liner questions or a single `exec`/MCP call.
+- Write a **self-contained `task`** (goal, scope, expected output); add `context` for snippets the child cannot infer from parent history.
+- Subagents **cannot** spawn subagents, write memory/skills, or schedule jobs — you integrate their summary into the final reply.
+- Verify file-change claims with `exec` (e.g. `git diff --stat`) before telling the user work is done.
+- **Cost:** each subagent is a full child LLM loop (~3–7× tokens vs a single parent turn). Delegate sparingly.
+- **`spawn`** for long background work when you do not need to wait; result is appended to the session when complete.
+- External backends (`claude-code`, `codex`, `cursor`) are opt-in in `config.yaml` — default is native only.
+
 ## External vs internal
 
 **Freely:** read/explore workspace, `exec` checks.

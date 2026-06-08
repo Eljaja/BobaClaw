@@ -8,6 +8,7 @@ pub mod policy;
 pub mod request;
 pub mod run;
 pub mod scheduler;
+pub mod subagent_config;
 pub mod truncate;
 pub mod turn;
 
@@ -31,5 +32,9 @@ pub use request::{
 };
 pub use run::{CommandCapsuleManifest, RunEventKind, RunStatus};
 pub use scheduler::{CronConfig, CronJobConfig, DeliverTarget, SchedulerConfig};
+pub use subagent_config::{
+    ClaudeCodeBackendConfig, CodexBackendConfig, CursorBackendConfig, SubagentBackendsConfig,
+    SubagentConfig, SubagentPreset,
+};
 pub use truncate::head_tail_with_hint;
 pub use turn::TurnInterrupted;

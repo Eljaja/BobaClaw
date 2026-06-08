@@ -75,6 +75,27 @@ When using a skill and finding it wrong, patch it with skill_manage — do not w
 List installed skills with skills_list. \
 Do not store user facts or preferences as skills — use memory_manage or MEMORY.md for those.";
 
+const SUBAGENT_HINT: &str = "# Subagents\n\
+Use the `subagent` tool to delegate a focused subtask to an isolated agent loop with a fresh context. \
+Delegate when the work is multi-step, explores many files, or needs a clean context window — not for one-liner questions or a single exec/MCP call. \
+Write a self-contained `task` (goal, scope, expected output); optional `context` for short parent snippets the child cannot infer. \
+Subagents cannot spawn subagents, write memory/skills, or schedule jobs — you integrate their result into the user-facing answer. \
+After a subagent returns, verify file-change claims with `exec` before telling the user work is done.";
+
+/// Minimal system prompt for native child loops (no workspace bootstrap bloat).
+pub const SUBAGENT_SYSTEM: &str =
+    "You are a focused BobaClaw subagent. Complete the assigned task using available tools. \
+You cannot spawn subagents, write memory, edit skills, or schedule jobs. \
+Workspace cwd is the sandbox root shown below. \
+When finished, reply with these sections only:\n\
+## Done\n\
+## Found\n\
+## Changed\n\
+## Issues";
+
+/// Prefix for the child user message (task follows on the next line).
+pub const SUBAGENT_USER_TASK_PREFIX: &str = "Subtask (complete and return structured summary):";
+
 const MCP_HINT: &str = "# MCP tools\n\
 Tools named `mcp_<server>_<tool>` call external MCP servers configured in `config.yaml` (`mcp_servers`). \
 They run on the host and may use network or credentials you configured. \
@@ -196,6 +217,7 @@ pub fn build_system_prompt(
         MEMORY_HINT.to_string(),
         SCHEDULING_HINT.to_string(),
         SKILLS_HINT.to_string(),
+        SUBAGENT_HINT.to_string(),
         "Use the `exec` tool for shell commands in the sandboxed workspace.".to_string(),
     ];
 
@@ -252,6 +274,23 @@ pub fn build_system_prompt(
     }
 
     parts
+}
+
+/// Child subagent system prompt — workspace path only, optional preset extras.
+pub fn build_subagent_system_prompt(
+    workspace: &Path,
+    preset: Option<&bobaclaw_core::SubagentPreset>,
+) -> String {
+    let workspace = workspace.display().to_string();
+    let mut parts = vec![format!(
+        "{SUBAGENT_SYSTEM}\n\nWorkspace (sandbox cwd): {workspace}"
+    )];
+    if let Some(preset) = preset {
+        if let Some(extra) = preset.system_extra.as_deref().filter(|s| !s.is_empty()) {
+            parts.push(format!("\nPreset instructions:\n{extra}"));
+        }
+    }
+    parts.join("\n")
 }
 
 /// Max total chars injected from `memory/*` (excluding MEMORY.md).
@@ -345,6 +384,15 @@ mod tests {
     use bobaclaw_skills::SkillRegistry;
 
     #[test]
+    fn build_subagent_prompt_includes_sections() {
+        let dir = tempfile::tempdir().unwrap();
+        let prompt = build_subagent_system_prompt(dir.path(), None);
+        assert!(prompt.contains("## Done"));
+        assert!(prompt.contains("cannot spawn subagents"));
+        assert!(prompt.contains("Workspace (sandbox cwd)"));
+    }
+
+    #[test]
     fn mcp_hint_requires_browser_sources() {
         assert!(super::MCP_HINT.contains("Sources"));
         assert!(super::MCP_HINT.contains("browser_navigate"));
@@ -387,6 +435,8 @@ mod tests {
         assert!(prompt.contains("# Agent loop"));
         assert!(prompt.contains("skill_manage"));
         assert!(prompt.contains("memory_manage"));
+        assert!(prompt.contains("subagent"));
+        assert!(prompt.contains("cannot spawn subagents"));
         assert!(!prompt.contains("5+ tool calls"));
         assert!(!prompt.contains("AGENTS.md"));
     }
