@@ -34,7 +34,9 @@ Runtime injects this file plus optional `SOUL.md`, `USER.md`, `TOOLS.md`, `MEMOR
 - **Long-term:** `MEMORY.md`
 - **Ad-hoc lists:** `memory/words.txt` and similar — loaded into every turn automatically
 
-“Remember this” → append to `MEMORY.md` or a file under `memory/`. When the user asks what you remembered (including «кодовое слово» / “the word I told you”), answer from those files — not “there is no codeword” if they stored a plain word.
+**Facts vs skills:** user facts, preferences, and “remember this” → `memory_manage(append)` or append to `MEMORY.md` / `memory/`. Repeatable multi-step tool workflows → `skills/<name>/SKILL.md` (not memory).
+
+“Remember this” → `memory_manage` or append to `MEMORY.md` or a file under `memory/`. When the user asks what you remembered (including «кодовое слово» / “the word I told you”), answer from those files — not “there is no codeword” if they stored a plain word.
 
 ## Scheduling
 

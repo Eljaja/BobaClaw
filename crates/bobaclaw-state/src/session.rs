@@ -179,6 +179,17 @@ impl<'a> SessionStore<'a> {
         .await?;
         Ok(rows)
     }
+
+    /// Count user-role messages in a session (for memory review turn gate).
+    pub async fn count_user_messages(&self, session_id: &str) -> anyhow::Result<usize> {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM messages WHERE session_id = ?1 AND role = 'user'",
+        )
+        .bind(session_id)
+        .fetch_one(self.pool)
+        .await?;
+        Ok(count as usize)
+    }
 }
 
 fn ingress_source(kind: IngressKind) -> String {
@@ -222,6 +233,8 @@ mod tests {
         let recent = store.recent_messages(&sid, 2).await.unwrap();
         assert_eq!(recent.len(), 2);
         assert_eq!(recent[0].0, "assistant");
+
+        assert_eq!(store.count_user_messages(&sid).await.unwrap(), 1);
     }
 
     #[tokio::test]

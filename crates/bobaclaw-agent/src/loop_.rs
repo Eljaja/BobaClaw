@@ -7,7 +7,7 @@ use bobaclaw_state::{SessionStore, StateDb};
 use tokio_util::sync::CancellationToken;
 
 use crate::progress::AgentProgress;
-use crate::review::{maybe_post_turn_skill_save, SkillSaveSource, TurnSkillMetrics};
+use crate::review::{maybe_post_turn_review, PostTurnSave, TurnReviewMetrics};
 use crate::turn::run_agent_turn;
 
 #[derive(Debug, Clone)]
@@ -18,8 +18,10 @@ pub struct AgentResponse {
     pub executed: bool,
     /// Turn was cancelled (Ctrl+C, `/stop`, or a new message for the same scope).
     pub interrupted: bool,
-    /// Skill auto-saved after a tool-heavy turn (background review or forge fallback).
+    /// Skill auto-saved after a tool-heavy turn (background review).
     pub auto_saved_skill: Option<String>,
+    /// Memory path appended after background memory review.
+    pub auto_saved_memory: Option<String>,
 }
 
 pub struct AgentLoop {
@@ -66,6 +68,8 @@ impl AgentLoop {
             .append_message(&session_id, "user", &user_content)
             .await?;
 
+        let user_message_count = sessions.count_user_messages(&session_id).await?;
+
         let skills = SkillRegistry::load_enabled(&self.paths.group_workspace(&req.agent_group))?;
 
         let outcome = run_agent_turn(
@@ -82,41 +86,39 @@ impl AgentLoop {
         .await?;
 
         let mut reply_text = outcome.text.clone();
-        let auto_saved_skill = if outcome.interrupted {
-            None
-        } else {
-            maybe_post_turn_skill_save(
+        let mut auto_saved_skill = None;
+        let mut auto_saved_memory = None;
+
+        if !outcome.interrupted {
+            let review = maybe_post_turn_review(
                 &self.paths,
                 &self.config,
-                &self.state,
                 &req.agent_group,
-                &TurnSkillMetrics {
+                &TurnReviewMetrics {
                     tool_call_count: outcome.tool_call_count,
                     skill_manage_used: outcome.skill_manage_used,
+                    memory_manage_used: outcome.memory_manage_used,
+                    user_message_count,
                 },
                 &outcome.review_snapshot,
-                outcome.last_run_id.as_deref(),
             )
-            .await
-            .map(|saved| {
-                let note = match saved.source {
-                    SkillSaveSource::BackgroundReview => {
-                        format!(
-                            "\n\n💾 Saved skill `{}` for reuse (background review).",
-                            saved.skill_name
-                        )
-                    }
-                    SkillSaveSource::ForgeAutoPromote => {
-                        format!(
-                            "\n\n💾 Saved skill `{}` for reuse (from successful run).",
-                            saved.skill_name
-                        )
-                    }
-                };
-                reply_text.push_str(&note);
-                saved.skill_name
-            })
-        };
+            .await;
+
+            if let Some(PostTurnSave::Memory { path }) = review.memory {
+                reply_text.push_str(&format!(
+                    "\n\nSaved to memory `{}` (background review).",
+                    path
+                ));
+                auto_saved_memory = Some(path);
+            }
+            if let Some(PostTurnSave::Skill { name }) = review.skill {
+                reply_text.push_str(&format!(
+                    "\n\nSaved skill `{}` for reuse (background review).",
+                    name
+                ));
+                auto_saved_skill = Some(name);
+            }
+        }
 
         sessions
             .append_message(&session_id, "assistant", &outcome.persisted_assistant)
@@ -129,6 +131,7 @@ impl AgentLoop {
             executed: outcome.executed,
             interrupted: outcome.interrupted,
             auto_saved_skill,
+            auto_saved_memory,
         })
     }
 }

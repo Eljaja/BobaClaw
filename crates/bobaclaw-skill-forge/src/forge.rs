@@ -101,6 +101,8 @@ impl SkillForge {
     }
 
     /// Draft from a successful run and promote immediately (no operator step).
+    /// Reserved for operator/CLI use; post-turn agent path does not auto-promote (ADR 004).
+    #[allow(dead_code)]
     pub async fn draft_and_promote_from_run(
         &self,
         state: &StateDb,

@@ -14,8 +14,9 @@ use crate::progress::{emit, AgentEvent, AgentProgress};
 use crate::prompt::build_system_prompt;
 use crate::review::build_review_snapshot;
 use crate::tools::{
-    exec_tool_spec, handle_exec_tool, handle_mcp_tool, handle_schedule_tool, handle_skill_tool,
-    is_mcp_tool, is_skill_tool, schedule_tool_specs, skill_tool_specs, SKILL_MANAGE,
+    exec_tool_spec, handle_exec_tool, handle_mcp_tool, handle_memory_tool, handle_schedule_tool,
+    handle_skill_tool, is_mcp_tool, is_memory_tool, is_skill_tool, memory_tool_spec,
+    schedule_tool_specs, skill_tool_specs, MEMORY_MANAGE, SKILL_MANAGE,
 };
 
 const MAX_ACTION_RETRIES: usize = 2;
@@ -23,6 +24,18 @@ const MAX_ACTION_RETRIES: usize = 2;
 const MAX_EMPTY_RESPONSE_RETRIES: usize = 3;
 const PERSIST_TOOL_BODY_MAX: usize = 4_000;
 const TOOL_RESULTS_MARKER: &str = "\n\n<!-- tool-results -->\n";
+const TOOL_RESULTS_HTML_COMMENT: &str = "<!-- tool-results -->";
+
+/// Markers where leaked provider/tool XML starts — trim from the earliest match.
+const LEAKED_TOOL_XML_MARKERS: &[&str] = &[
+    "<invoke ",
+    "<invoke>",
+    "<tool_call",
+    "<minimax:tool_call",
+    "</parameter>",
+    "</invoke>",
+    "</minimax:tool_call>",
+];
 
 const ACTION_REQUIRED_NUDGE: &str = "The user's request requires real tool output. \
 You replied without calling exec, schedule, or a configured MCP tool. \
@@ -50,6 +63,7 @@ pub struct TurnOutcome {
     pub executed: bool,
     pub tool_call_count: usize,
     pub skill_manage_used: bool,
+    pub memory_manage_used: bool,
     pub interrupted: bool,
     /// Truncated conversation for background skill review (excludes system prompt).
     pub review_snapshot: String,
@@ -76,6 +90,7 @@ pub async fn run_agent_turn(
             false,
             0,
             false,
+            false,
             &[],
             progress,
         );
@@ -89,6 +104,7 @@ pub async fn run_agent_turn(
             None,
             false,
             0,
+            false,
             false,
             &[],
             progress,
@@ -126,6 +142,7 @@ pub async fn run_agent_turn(
         let mut t = vec![exec_tool_spec()];
         t.extend(schedule_tool_specs());
         t.extend(skill_tool_specs());
+        t.push(memory_tool_spec());
         if let Some(hub) = mcp {
             t.extend(hub.tool_specs());
         }
@@ -141,6 +158,7 @@ pub async fn run_agent_turn(
     let mut hit_iteration_limit = false;
     let mut tool_call_count = 0usize;
     let mut skill_manage_used = false;
+    let mut memory_manage_used = false;
     let max_tool_iterations = config.agent.max_tool_iterations;
 
     for iteration in 1..=max_tool_iterations {
@@ -153,6 +171,7 @@ pub async fn run_agent_turn(
                 executed,
                 tool_call_count,
                 skill_manage_used,
+                memory_manage_used,
                 &messages,
                 progress,
             );
@@ -182,6 +201,7 @@ pub async fn run_agent_turn(
                     executed,
                     tool_call_count,
                     skill_manage_used,
+                    memory_manage_used,
                     &messages,
                     progress,
                 )
@@ -220,6 +240,7 @@ pub async fn run_agent_turn(
                             executed,
                             tool_call_count,
                             skill_manage_used,
+                            memory_manage_used,
                             &messages,
                             progress,
                         );
@@ -227,6 +248,9 @@ pub async fn run_agent_turn(
                     tool_call_count += 1;
                     if call.function.name == SKILL_MANAGE {
                         skill_manage_used = true;
+                    }
+                    if call.function.name == MEMORY_MANAGE {
+                        memory_manage_used = true;
                     }
                     let (body, entry) = match run_tool_call(
                         paths,
@@ -253,6 +277,7 @@ pub async fn run_agent_turn(
                                 executed,
                                 tool_call_count,
                                 skill_manage_used,
+                                memory_manage_used,
                                 &messages,
                                 progress,
                             )
@@ -293,6 +318,7 @@ pub async fn run_agent_turn(
                 executed,
                 tool_call_count,
                 skill_manage_used,
+                memory_manage_used,
                 &messages,
                 progress,
             );
@@ -341,6 +367,7 @@ pub async fn run_agent_turn(
                     executed,
                     tool_call_count,
                     skill_manage_used,
+                    memory_manage_used,
                     &messages,
                     progress,
                 )
@@ -370,6 +397,7 @@ pub async fn run_agent_turn(
             executed,
             tool_call_count,
             skill_manage_used,
+            memory_manage_used,
             &messages,
             progress,
         );
@@ -392,15 +420,17 @@ Ask me to continue or narrow the task."
 
     let persisted_assistant = build_persisted_assistant(&final_text, &tool_persist);
     let review_snapshot = build_review_snapshot(&messages);
+    let user_text = sanitize_user_reply(&final_text);
 
     Ok(TurnOutcome {
-        text: final_text,
+        text: user_text,
         persisted_assistant,
         session_id: session_id.to_string(),
         last_run_id,
         executed,
         tool_call_count,
         skill_manage_used,
+        memory_manage_used,
         interrupted: false,
         review_snapshot,
     })
@@ -419,6 +449,7 @@ fn finish_interrupted(
     executed: bool,
     tool_call_count: usize,
     skill_manage_used: bool,
+    memory_manage_used: bool,
     messages: &[bobaclaw_provider::ConversationMessage],
     progress: Option<&dyn AgentProgress>,
 ) -> anyhow::Result<TurnOutcome> {
@@ -427,13 +458,14 @@ fn finish_interrupted(
     let persisted_assistant = build_persisted_assistant(&text, &tool_persist);
     let review_snapshot = build_review_snapshot(messages);
     Ok(TurnOutcome {
-        text,
+        text: sanitize_user_reply(&text),
         persisted_assistant,
         session_id: session_id.to_string(),
         last_run_id,
         executed,
         tool_call_count,
         skill_manage_used,
+        memory_manage_used,
         interrupted: true,
         review_snapshot,
     })
@@ -492,6 +524,10 @@ async fn run_tool_call(
         let body = handle_skill_tool(paths, &req.agent_group, call)?;
         *executed = true;
         (body, 0)
+    } else if is_memory_tool(&name) {
+        let body = handle_memory_tool(paths, &req.agent_group, call)?;
+        *executed = true;
+        (body, 0)
     } else {
         anyhow::bail!("unknown tool: {name}");
     };
@@ -502,6 +538,44 @@ async fn run_tool_call(
         body: truncate_for_persist(&body, PERSIST_TOOL_BODY_MAX),
     };
     Ok((body, entry))
+}
+
+/// Remove session-internal appendix and provider XML tool markup from user-visible replies.
+pub fn sanitize_user_reply(text: &str) -> String {
+    let mut s = text.to_string();
+    if let Some(idx) = s.find(TOOL_RESULTS_HTML_COMMENT) {
+        s.truncate(idx);
+    }
+    s = strip_leaked_tool_xml(&s);
+    trim_trailing_tool_persist_lines(&s)
+}
+
+fn strip_leaked_tool_xml(s: &str) -> String {
+    let mut cut = s.len();
+    for marker in LEAKED_TOOL_XML_MARKERS {
+        if let Some(i) = s.find(marker) {
+            cut = cut.min(i);
+        }
+    }
+    s[..cut].trim_end().to_string()
+}
+
+/// Drop echoed `[exec exit=0]` lines the model sometimes appends after tool loops.
+fn trim_trailing_tool_persist_lines(s: &str) -> String {
+    let mut lines: Vec<&str> = s.lines().collect();
+    while let Some(last) = lines.last() {
+        let t = last.trim();
+        if t.is_empty() {
+            lines.pop();
+            continue;
+        }
+        if t.starts_with('[') && t.contains(" exit=") && t.ends_with(']') {
+            lines.pop();
+            continue;
+        }
+        break;
+    }
+    lines.join("\n").trim_end().to_string()
 }
 
 fn build_persisted_assistant(final_text: &str, tools: &[ToolPersistEntry]) -> String {
@@ -588,5 +662,31 @@ mod tests {
         let p = build_persisted_assistant("Done.", &tools);
         assert!(p.contains("<!-- tool-results -->"));
         assert!(p.contains("[exec exit=0]"));
+    }
+
+    #[test]
+    fn sanitize_strips_tool_results_appendix_and_xml() {
+        let raw = "Honcho analysis here.\n\n\
+<!-- tool-results -->\n\
+[exec exit=0]\n\
+command: curl -sL example.com\n\
+</parameter>\n\
+</invoke>\n\
+<invoke name=\"exec\">\n\
+</minimax:tool_call>";
+        let clean = sanitize_user_reply(raw);
+        assert_eq!(clean, "Honcho analysis here.");
+    }
+
+    #[test]
+    fn sanitize_strips_trailing_exec_exit_line() {
+        let raw = "Summary of findings.\n[exec exit=0]";
+        assert_eq!(sanitize_user_reply(raw), "Summary of findings.");
+    }
+
+    #[test]
+    fn sanitize_preserves_normal_markdown() {
+        let raw = "## Title\n\nParagraph with `code` and [link](https://example.com).";
+        assert_eq!(sanitize_user_reply(raw), raw);
     }
 }

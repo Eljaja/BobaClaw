@@ -41,7 +41,8 @@ const MEMORY_HINT: &str = "# User memory (workspace files)\n\
 `MEMORY.md` and files under `memory/` are injected below when present. They persist across CLI sessions. \
 When the user asks what you remembered, what \"codeword\" / \"code word\" / «кодовое слово» they meant, \
 or refers to something they asked to save — answer from these files first, then session history. \
-For new facts to remember: append to `MEMORY.md` or `memory/` (e.g. `memory/words.txt`), not chat-only.";
+For new facts, preferences, or user context: use `memory_manage(action=append)` or append to `MEMORY.md` / `memory/` — not chat-only. \
+Do not store facts or preferences as skills; repeatable multi-step tool workflows belong in skills, not memory.";
 
 const EXEC_DISCIPLINE: &str = "# Execution discipline\n\
 - Use `exec` for arithmetic, hashes, current time/date, system state, and git state — \
@@ -70,9 +71,9 @@ Do not tell the user you lack a scheduler — use these tools.";
 
 const SKILLS_HINT: &str = "# Skills\n\
 When a skill matches the request, follow its SKILL.md (use skill_view to read one). \
-After a complex task (5+ tool calls), fixing a tricky error, or discovering a non-trivial workflow, \
-save the approach with skill_manage (create or patch). When using a skill and finding it wrong, \
-patch it immediately — do not wait to be asked. List installed skills with skills_list.";
+When using a skill and finding it wrong, patch it with skill_manage — do not wait to be asked. \
+List installed skills with skills_list. \
+Do not store user facts or preferences as skills — use memory_manage or MEMORY.md for those.";
 
 const MCP_HINT: &str = "# MCP tools\n\
 Tools named `mcp_<server>_<tool>` call external MCP servers configured in `config.yaml` (`mcp_servers`). \
@@ -385,7 +386,29 @@ mod tests {
         assert!(prompt.contains("Use exec"));
         assert!(prompt.contains("# Agent loop"));
         assert!(prompt.contains("skill_manage"));
+        assert!(prompt.contains("memory_manage"));
+        assert!(!prompt.contains("5+ tool calls"));
         assert!(!prompt.contains("AGENTS.md"));
+    }
+
+    #[test]
+    fn build_prompt_memory_skill_split() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().to_path_buf();
+        let ws = home.join("workspace").join("home");
+        std::fs::create_dir_all(&ws).unwrap();
+
+        let paths = BobaPaths {
+            home: home.clone(),
+            config: home.join("config.yaml"),
+            state_db: home.join("state.db"),
+            runs: home.join("runs"),
+            workspace: home.join("workspace"),
+        };
+        let skills = SkillRegistry::load(&ws).unwrap();
+        let prompt = build_system_prompt(&paths, "home", &skills, None);
+        assert!(prompt.contains("Do not store facts or preferences as skills"));
+        assert!(prompt.contains("Do not store user facts or preferences as skills"));
     }
 
     #[test]
