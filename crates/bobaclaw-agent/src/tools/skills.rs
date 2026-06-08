@@ -12,6 +12,10 @@ pub fn skill_tool_specs() -> Vec<ToolSpec> {
     vec![skill_manage_spec(), skill_view_spec(), skills_list_spec()]
 }
 
+pub fn child_skill_tool_specs() -> Vec<ToolSpec> {
+    vec![skill_view_spec(), skills_list_spec()]
+}
+
 pub fn is_skill_tool(name: &str) -> bool {
     matches!(name, SKILL_MANAGE | SKILL_VIEW | SKILLS_LIST)
 }

@@ -29,6 +29,8 @@ REQUIRED_PATHS = [
     "harness/tools/schedule.md",
     "harness/tools/skills.md",
     "harness/tools/mcp.md",
+    "harness/tools/memory.md",
+    "harness/tools/subagent.md",
     "plans/AGENTS.md",
     "plans/templates/agent-change-plan.md",
     "scripts/check_repo_structure.py",

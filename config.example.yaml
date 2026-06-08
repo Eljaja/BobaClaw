@@ -105,6 +105,43 @@ mcp_servers:
   #   tools_allowlist: []
   #   tools_denylist: []
 
+# Subagent delegation (native in-process child loops by default).
+subagents:
+  enabled: true
+  max_depth: 1
+  max_concurrent: 2
+  max_tool_iterations: 20
+  child_timeout_seconds: 600
+  result_max_chars: 12000
+  persist_child_sessions: false
+  default_backend: native
+  # model: gpt-4o-mini          # optional cheaper model for native children
+  # presets:
+  #   researcher:
+  #     model: gpt-4o-mini
+  #     system_extra: "Prefer read-only exploration."
+  #     tools_allowlist: ["exec", "mcp_*"]
+  #     skills: []
+  backends:
+    claude_code:
+      enabled: false
+      command: claude
+      api_key_env: ANTHROPIC_API_KEY
+      max_turns: 30
+      timeout_secs: 900
+    codex:
+      enabled: false
+      command: codex
+      api_key_env: CODEX_API_KEY
+      sandbox: workspace-write
+      timeout_secs: 900
+    cursor:
+      enabled: false
+      wrapper_command: python3
+      api_key_env: CURSOR_API_KEY
+      model: composer-2.5
+      timeout_secs: 900
+
 routing:
   rules:
     - match:

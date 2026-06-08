@@ -22,6 +22,14 @@ pub enum AgentEvent {
     EmptyResponseRetry { attempt: u32 },
     /// User or operator cancelled the in-flight turn.
     Interrupted,
+    /// Subagent delegation started.
+    SubagentStart { id: String, label: String },
+    /// Subagent delegation finished.
+    SubagentEnd {
+        id: String,
+        exit_code: i32,
+        preview: String,
+    },
 }
 
 pub trait AgentProgress: Send + Sync {
@@ -139,6 +147,24 @@ pub fn format_step_block(event: &AgentEvent) -> String {
             format!("No reply text yet — retrying summary ({attempt}/{MAX_EMPTY_RESPONSE_RETRIES})")
         }
         AgentEvent::Interrupted => "⚡ Прервано".into(),
+        AgentEvent::SubagentStart { label, .. } => format!("Subagent `{label}` starting…"),
+        AgentEvent::SubagentEnd {
+            id,
+            exit_code,
+            preview,
+        } => {
+            let status = if *exit_code == 0 {
+                format!("Subagent `{id}` finished (ok)")
+            } else {
+                format!("Subagent `{id}` failed (exit {exit_code})")
+            };
+            let preview = preview.trim();
+            if preview.is_empty() {
+                status
+            } else {
+                format!("{status}\n  {}", sanitize_status_text(preview, 120))
+            }
+        }
     }
 }
 
@@ -265,5 +291,21 @@ mod tests {
         };
         assert!(format_step_block(&e).contains("hello"));
         assert!(format_status_line(&e).contains("hello"));
+    }
+
+    #[test]
+    fn subagent_events_format() {
+        let start = AgentEvent::SubagentStart {
+            id: "subagent_1".into(),
+            label: "research".into(),
+        };
+        assert!(format_step_block(&start).contains("research"));
+        let end = AgentEvent::SubagentEnd {
+            id: "subagent_1".into(),
+            exit_code: 0,
+            preview: "Done: found 3 files".into(),
+        };
+        assert!(format_step_block(&end).contains("finished"));
+        assert!(format_step_block(&end).contains("Done"));
     }
 }
