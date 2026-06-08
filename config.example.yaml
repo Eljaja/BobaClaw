@@ -7,6 +7,10 @@ provider:
 
 default_agent_group: home
 
+agent:
+  # Max LLM↔tool loop steps per user message (each tool batch = one step).
+  max_tool_iterations: 60
+
 executor:
   backend: bubblewrap   # bubblewrap | docker
   network: true

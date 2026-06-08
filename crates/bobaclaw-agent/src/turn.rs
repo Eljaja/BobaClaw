@@ -18,7 +18,6 @@ use crate::tools::{
     is_mcp_tool, is_skill_tool, schedule_tool_specs, skill_tool_specs, SKILL_MANAGE,
 };
 
-const MAX_TOOL_ITERATIONS: usize = 16;
 const MAX_ACTION_RETRIES: usize = 2;
 /// Extra completions when the model stops without user-visible text (common on long tool loops).
 const MAX_EMPTY_RESPONSE_RETRIES: usize = 3;
@@ -142,8 +141,9 @@ pub async fn run_agent_turn(
     let mut hit_iteration_limit = false;
     let mut tool_call_count = 0usize;
     let mut skill_manage_used = false;
+    let max_tool_iterations = config.agent.max_tool_iterations;
 
-    for iteration in 1..=MAX_TOOL_ITERATIONS {
+    for iteration in 1..=max_tool_iterations {
         if let Err(TurnInterrupted) = check_cancel(cancel) {
             return finish_interrupted(
                 final_text,
@@ -319,7 +319,7 @@ pub async fn run_agent_turn(
         emit(
             progress,
             AgentEvent::LlmThinking {
-                iteration: MAX_TOOL_ITERATIONS as u32 + empty_attempt,
+                iteration: max_tool_iterations as u32 + empty_attempt,
             },
         );
         let turn = match client
@@ -377,16 +377,17 @@ pub async fn run_agent_turn(
 
     if final_text.trim().is_empty() {
         final_text = if hit_iteration_limit {
-            "Reached the per-turn tool step limit (16) before producing a final reply. \
+            format!(
+                "Reached the per-turn tool step limit ({max_tool_iterations}) before producing a final reply. \
 Ask me to continue or narrow the task."
-                .into()
+            )
         } else {
             "(model finished without a text response)".into()
         };
     } else if hit_iteration_limit && !final_text.contains("tool step limit") {
-        final_text.push_str(
-            "\n\n(Reached the 16-step tool limit this turn; partial progress may be in tool output above.)",
-        );
+        final_text.push_str(&format!(
+            "\n\n(Reached the {max_tool_iterations}-step tool limit this turn; partial progress may be in tool output above.)"
+        ));
     }
 
     let persisted_assistant = build_persisted_assistant(&final_text, &tool_persist);
