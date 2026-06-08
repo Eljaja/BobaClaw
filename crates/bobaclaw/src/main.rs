@@ -336,11 +336,7 @@ async fn cmd_channel(
                 let dispatcher = std::sync::Arc::new(
                     bobaclaw_agent::AgentDispatcher::new(paths.clone(), config.clone()).await?,
                 );
-                spawn_in_process_scheduler(
-                    paths.clone(),
-                    config.clone(),
-                    Some(dispatcher.clone()),
-                );
+                spawn_in_process_scheduler(paths.clone(), config.clone(), Some(dispatcher.clone()));
                 run_telegram_polling(paths, config, Some(dispatcher)).await?;
             }
         },
