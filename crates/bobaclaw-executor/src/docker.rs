@@ -3,6 +3,7 @@ use std::process::Command;
 
 use bobaclaw_core::{CommandCapsuleManifest, DockerExecutorConfig, ExecutorConfig};
 
+use crate::docker_mount::docker_bind_source;
 use crate::profile::ExecutorProfile;
 use crate::run::{ExecutionResult, RunArtifacts};
 
@@ -94,8 +95,8 @@ pub fn ensure_container(
         .ok()
         .and_then(|raw| serde_json::from_str(&raw).ok());
 
-    let workspace_abs = workspace_root.canonicalize()?;
-    let runs_abs = runs_root.canonicalize()?;
+    let workspace_abs = docker_bind_source(workspace_root)?;
+    let runs_abs = docker_bind_source(runs_root)?;
     let name = &executor.docker.container_name;
 
     let needs_recreate = stored.as_ref() != Some(&desired) || !container_exists(name)?;

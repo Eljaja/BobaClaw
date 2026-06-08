@@ -3,13 +3,13 @@
   "hooks": {
     "afterFileEdit": [
       {
-        "command": ".cursor/hooks/rust-fmt-after-edit.sh",
+        "command": "wsl bash .cursor/hooks/rust-fmt-after-edit.sh",
         "timeout": 120
       }
     ],
     "stop": [
       {
-        "command": ".cursor/hooks/rust-fmt-check-stop.sh",
+        "command": "wsl bash .cursor/hooks/rust-fmt-check-stop.sh",
         "timeout": 120,
         "loop_limit": 3
       }

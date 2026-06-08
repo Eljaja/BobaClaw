@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
-cd "$(dirname "$0")/.."
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
 BC=./target/release/bobaclaw
-cp -f config.local.yaml ~/.bobaclaw/config.yaml 2>/dev/null || true
+cp -f "$ROOT/config.local.yaml" ~/.bobaclaw/config.yaml 2>/dev/null || true
 {
   echo "what can you do"
   sleep 2

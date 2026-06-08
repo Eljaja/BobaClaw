@@ -36,7 +36,7 @@ Future: model-based regression evals on schedule or before release.
 
 ## Homelab self-hosted runner
 
-The `deploy` job does not SSH from the cloud. It runs on a [self-hosted runner](https://docs.github.com/en/actions/hosting-your-own-runners) installed on the deploy host (for example `192.168.88.220`).
+The `deploy` job does not SSH from the cloud. It runs on a [self-hosted runner](https://docs.github.com/en/actions/hosting-your-own-runners) installed on your LAN deploy host.
 
 | Setting | Where | Default |
 |---------|-------|---------|

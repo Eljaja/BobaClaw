@@ -7,6 +7,10 @@ config.local.yaml
 # Local upstream snapshots (see references/README.md)
 /references/*
 !/references/README.md
-scripts/test-proxy-220-remote.sh
-scripts/test-proxy-220.sh
+# Operator-local scripts (private hosts, tokens) — never commit
+scripts/*220*
+scripts/fix-sandbox-*.sh
+scripts/debug-sandbox-*.sh
+scripts/check-mounts.sh
+scripts/test-proxy-*.sh
 scripts/test-telegram-connect.sh

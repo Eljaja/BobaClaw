@@ -20,6 +20,8 @@ services:
     restart: unless-stopped
     environment:
       BOBACLAW_HOME: /data
+      # Host path for /data bind mount — required so sandbox containers mount real workspace/runs.
+      BOBACLAW_HOST_HOME: ${BOBACLAW_DATA_DIR:-/opt/bobaclaw/data}
       BOBACLAW_SANDBOX_IMAGE: ${BOBACLAW_SANDBOX_IMAGE:-bobaclaw/sandbox:latest}
       OBSCURA_MCP_IMAGE: ${OBSCURA_MCP_IMAGE:-h4ckf0r0day/obscura}
       BOBACLAW_PULL_IMAGES: ${BOBACLAW_PULL_IMAGES:-1}

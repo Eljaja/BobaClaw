@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
-cd /mnt/c/Users/ilya/Documents/BobaClaw/bobaClaw
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
 WS=/tmp/bobaclaw-net-test
 RUN=/tmp/bobaclaw-net-run
 rm -rf "$WS" "$RUN"
 mkdir -p "$WS" "$RUN"
-# simulate exec_command via bobaclaw if we had a subcommand - use bwrap manually
 bwrap --unshare-all --die-with-parent --new-session \
   --ro-bind /usr /usr --ro-bind /bin /bin --ro-bind /lib /lib \
   $(test -d /lib64 && echo --ro-bind /lib64 /lib64) \

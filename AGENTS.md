@@ -22,7 +22,7 @@ End-user runtime workspace files (`workspace-examples/`, `~/.bobaclaw/workspace/
 
 1. Read this file first.
 2. Read the closest nested `AGENTS.md` before editing files in a subdirectory (`harness/`, `evals/`, `plans/`, `crates/`).
-3. For multi-file, risky, or agent-generated changes, create or update a plan under `plans/active/` using `plans/templates/agent-change-plan.md`.
+3. For multi-file, risky, or agent-generated changes, create or update a plan under `plans/active/` using `plans/templates/agent-change-plan.md`. When merged or finished, move it to `plans/completed/` with completion notes.
 4. Keep changes small and scoped. Do not mix unrelated refactors with docs, policy, or CI changes.
 5. Add or update tests/evals/checks when behavior, policy, or repository contracts change.
 6. Run `make ci` before handoff when possible.
@@ -51,7 +51,7 @@ make doctor             # environment / sandbox probes
 | `harness/` | Tool/sandbox/policy contracts for the runtime agent |
 | `evals/` | Smoke and regression scenario definitions |
 | `plans/` | Reviewable intent and implementation records |
-| `scripts/` | Shell integration tests, harness validation scripts |
+| `scripts/` | Shell integration tests and harness validation (`make ci`); operator-local ad-hoc scripts are gitignored — see `.gitignore` patterns |
 | `workspace-examples/` | End-user workspace templates (`BOBACLAW.md`, skills) |
 | `references/` | Read-only Claw ecosystem snapshots (separate git repos) |
 | `.cursor/rules/` | Cursor agent rules for repo contributors |
@@ -61,9 +61,12 @@ make doctor             # environment / sandbox probes
 Do not commit:
 
 - API keys, tokens, passwords, SSH private keys, cookies, session data, or `.env` files.
+- `config.local.yaml` (operator config with secrets and LAN-specific proxy URLs).
+- Operator-local scripts matching `.gitignore` patterns under `scripts/` (private hosts, debug one-offs).
 - Large generated artifacts (`target/`, build output) unless explicitly required.
 - Vendor/cache directories such as `node_modules/`, `.venv/`, `.pytest_cache/`.
 - Machine-local absolute paths in reusable docs or configs.
+- Private LAN IPs or hostnames in tracked docs, examples, or scripts — use placeholders.
 
 ## Harness-engineering expectations
 

@@ -4,6 +4,9 @@ set -eu
 
 BOBACLAW_HOME="${BOBACLAW_HOME:-/data}"
 export BOBACLAW_HOME
+# When the gateway runs in Docker, sandbox bind mounts must use the host data dir.
+BOBACLAW_HOST_HOME="${BOBACLAW_HOST_HOME:-}"
+export BOBACLAW_HOST_HOME
 
 SANDBOX_IMAGE="${BOBACLAW_SANDBOX_IMAGE:-bobaclaw/sandbox:latest}"
 OBSCURA_IMAGE="${OBSCURA_MCP_IMAGE:-h4ckf0r0day/obscura}"

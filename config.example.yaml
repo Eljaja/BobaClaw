@@ -42,9 +42,9 @@ channels:
     # html = LLM markdown → Telegram HTML (https://gramio.dev/formatting); plain = no parse_mode
     format: html
     # Bot API proxy (if api.telegram.org is blocked). HTTP or SOCKS5.
-    # biba-vpn-client example on 220: HTTP :11882, SOCKS :11081 (not http on 11081).
-    # proxy_url: http://192.168.88.220:11882
-    # proxy_url: socks5://192.168.88.220:11081
+    # Example LAN proxy: HTTP :8080, SOCKS :1080 (do not use HTTP on a SOCKS port).
+    # proxy_url: http://192.168.1.100:8080
+    # proxy_url: socks5://192.168.1.100:1080
     proxy_url: ""
     proxy_env: TELEGRAM_PROXY
 

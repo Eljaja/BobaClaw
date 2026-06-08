@@ -1,6 +1,7 @@
 mod backend;
 mod bwrap;
 mod docker;
+mod docker_mount;
 mod doctor;
 mod profile;
 mod run;

@@ -8,6 +8,6 @@ alwaysApply: false
 
 - Match existing crate boundaries; prefer extending over new abstractions.
 - Gateway process must not run untrusted tools directly — use executor profiles (ADR 003).
-- After `.rs` edits: hooks run `cargo fmt --all` automatically; before handoff run `make fmt-check` (CI runs `cargo fmt --all -- --check`).
+- After `.rs` edits: hooks run `cargo fmt --all` automatically; before handoff run `make fmt-check` (CI runs `cargo fmt --all -- --check`). On Windows, hooks invoke WSL — run `cargo`/`make` in WSL too.
 - Run `cargo clippy --workspace --all-targets -- -D warnings` and `cargo test` for touched crates.
 - Minimal diffs; no drive-by refactors in unrelated modules.

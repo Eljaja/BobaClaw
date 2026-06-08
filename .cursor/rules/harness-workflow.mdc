@@ -10,10 +10,20 @@ Before non-trivial edits:
 1. Read root `AGENTS.md` and the nearest nested `AGENTS.md`.
 2. For multi-file, CI, harness, security, or agent-generated work — create/update a plan in `plans/active/` from `plans/templates/agent-change-plan.md`.
 3. Keep diffs small; do not mix refactors with unrelated docs or CI.
-4. After editing `crates/**/*.rs`, ensure formatting passes: `make fmt-check` (or `cargo fmt --all -- --check` in WSL). Project hooks auto-run `cargo fmt` on `.rs` edits and `cargo fmt --all -- --check` on agent stop (`.cursor/hooks.json`).
+4. After editing `crates/**/*.rs`, ensure formatting passes: `make fmt-check` (or `cargo fmt --all -- --check` in WSL). Project hooks auto-run `cargo fmt` on `.rs` edits and `cargo fmt --all -- --check` on agent stop (`.cursor/hooks.json`). On Windows, hook commands must use `wsl bash .cursor/hooks/...` — a bare `.sh` path opens the file in the editor instead of executing it.
 5. Run `make ci` before handoff.
 6. Summarize: changed files, validation commands, known gaps, rollback path.
+7. When work is merged or finished, move the plan to `plans/completed/` and fill completion notes (validation output, known gaps).
 
 Never commit secrets, `.env`, or `target/` artifacts. Use WSL for `cargo`, `make`, and integration scripts on this machine.
+
+Local-only boundaries — do not leak into tracked files:
+
+- `config.local.yaml` is operator-local and gitignored (also listed in `.cursorignore`).
+- Do not create homelab or debug scripts under `scripts/` — operator-local names match `.gitignore` / `.cursorignore` patterns. Edit tracked harness scripts when CI contracts change.
+- Never put private hostnames, LAN IPs, or machine-local absolute paths in tracked docs, configs, or scripts; use placeholders in `config.example.yaml` and `docs/`.
+- Tracked scripts must use repo-relative paths (e.g. `cd "$(dirname "$0")/.."`), not `/mnt/c/Users/...`.
+
+Changes to `.cursor/hooks.json` or hook scripts require a plan.
 
 All contributor instructions you add or edit must be in **English** (see root `AGENTS.md` § Language).
