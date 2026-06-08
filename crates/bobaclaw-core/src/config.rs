@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use crate::agent_config::AgentConfig;
 use crate::channels::{ChannelsConfig, RoutingConfig};
 use crate::context_config::ContextConfig;
 use crate::mcp::McpServers;
@@ -15,6 +16,8 @@ pub struct BobaConfig {
     pub executor: ExecutorConfig,
     #[serde(default)]
     pub context: ContextConfig,
+    #[serde(default)]
+    pub agent: AgentConfig,
     #[serde(default)]
     pub channels: ChannelsConfig,
     #[serde(default)]
@@ -40,6 +43,7 @@ impl Default for BobaConfig {
             gateway: GatewayConfig::default(),
             executor: ExecutorConfig::default(),
             context: ContextConfig::default(),
+            agent: AgentConfig::default(),
             channels: ChannelsConfig::default(),
             routing: RoutingConfig::default(),
             scheduler: SchedulerConfig::default(),
@@ -258,6 +262,16 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("nope.yaml");
         assert!(BobaConfig::load(&path).unwrap().context.compression_enabled);
+    }
+
+    #[test]
+    fn load_agent_max_tool_iterations() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.yaml");
+        std::fs::write(&path, "agent:\n  max_tool_iterations: 42\n").unwrap();
+        let loaded = BobaConfig::load(&path).unwrap();
+        assert_eq!(loaded.agent.max_tool_iterations, 42);
+        assert_eq!(BobaConfig::default().agent.max_tool_iterations, 60);
     }
 
     #[test]

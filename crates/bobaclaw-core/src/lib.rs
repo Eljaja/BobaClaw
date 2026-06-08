@@ -1,3 +1,4 @@
+pub mod agent_config;
 pub mod channels;
 pub mod config;
 pub mod context_config;
@@ -14,6 +15,7 @@ pub use channels::{
     ChannelPeer, ChannelsConfig, DmPolicy, GroupPolicy, RouteMatch, RoutingConfig, RoutingRule,
     TelegramConfig, TelegramFormat,
 };
+pub use agent_config::AgentConfig;
 pub use config::{
     BobaConfig, DockerExecutorConfig, ExecutorBackend, ExecutorConfig, GatewayConfig,
     ProviderConfig,
