@@ -50,7 +50,8 @@ impl Drop for McpServerHandle {
 
 /// Connected MCP servers and their tool catalog.
 pub struct McpHub {
-    servers: HashMap<String, Arc<McpServerHandle>>,
+    configs: McpServers,
+    servers: Mutex<HashMap<String, Arc<McpServerHandle>>>,
     bindings: HashMap<String, McpToolBinding>,
 }
 
@@ -58,20 +59,19 @@ impl McpHub {
     pub async fn connect(servers: &McpServers) -> Self {
         crate::docker_stdio::cleanup_stale_mcp_containers();
 
-        let mut hub = Self {
-            servers: HashMap::new(),
-            bindings: HashMap::new(),
-        };
+        let hub_servers = Mutex::new(HashMap::new());
+        let mut bindings = HashMap::new();
 
         for (name, cfg) in servers {
             if !cfg.enabled {
                 tracing::debug!("mcp server '{name}' disabled, skipping");
                 continue;
             }
-            match hub.connect_one(name, cfg).await {
-                Ok(bindings) => {
-                    for b in bindings {
-                        hub.bindings.insert(b.prefixed_name.clone(), b);
+            match connect_server(name, cfg).await {
+                Ok((handle, server_bindings)) => {
+                    hub_servers.lock().await.insert(name.clone(), handle);
+                    for b in server_bindings {
+                        bindings.insert(b.prefixed_name.clone(), b);
                     }
                 }
                 Err(e) => {
@@ -80,12 +80,14 @@ impl McpHub {
             }
         }
 
-        tracing::info!(
-            "mcp: {} server(s), {} tool(s)",
-            hub.servers.len(),
-            hub.bindings.len()
-        );
-        hub
+        let connected = hub_servers.lock().await.len();
+        tracing::info!("mcp: {connected} server(s), {} tool(s)", bindings.len());
+
+        Self {
+            configs: servers.clone(),
+            servers: hub_servers,
+            bindings,
+        }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -99,6 +101,12 @@ impl McpHub {
     }
 
     pub fn statuses(&self, configured: &McpServers) -> Vec<McpServerStatus> {
+        let connected_servers = self
+            .servers
+            .try_lock()
+            .map(|s| s.keys().cloned().collect::<std::collections::HashSet<_>>())
+            .unwrap_or_default();
+
         let mut out = Vec::new();
         for (name, cfg) in configured {
             if !cfg.enabled {
@@ -110,7 +118,7 @@ impl McpHub {
                 });
                 continue;
             }
-            if let Some(handle) = self.servers.get(name) {
+            if connected_servers.contains(name) {
                 let count = self
                     .bindings
                     .values()
@@ -122,7 +130,6 @@ impl McpHub {
                     tool_count: count,
                     error: None,
                 });
-                let _ = handle;
             } else {
                 out.push(McpServerStatus {
                     name: name.clone(),
@@ -146,9 +153,43 @@ impl McpHub {
             .get(&call.function.name)
             .ok_or_else(|| anyhow::anyhow!("unknown MCP tool: {}", call.function.name))?;
 
+        match self.invoke_tool(binding, call).await {
+            Ok(text) => Ok(text),
+            Err(e) if is_transport_closed(&e) => {
+                tracing::warn!(
+                    "mcp server '{}' transport closed; reconnecting and retrying once",
+                    binding.server_name
+                );
+                self.reconnect_server(&binding.server_name).await?;
+                self.invoke_tool(binding, call).await
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    async fn reconnect_server(&self, name: &str) -> anyhow::Result<()> {
+        let cfg = self
+            .configs
+            .get(name)
+            .filter(|c| c.enabled)
+            .ok_or_else(|| anyhow::anyhow!("MCP server '{name}' is not configured or disabled"))?;
+
+        let (handle, _) = connect_server(name, cfg).await?;
+        self.servers.lock().await.insert(name.to_string(), handle);
+        Ok(())
+    }
+
+    async fn invoke_tool(
+        &self,
+        binding: &McpToolBinding,
+        call: &ToolCall,
+    ) -> anyhow::Result<String> {
         let handle = self
             .servers
+            .lock()
+            .await
             .get(&binding.server_name)
+            .cloned()
             .ok_or_else(|| anyhow::anyhow!("MCP server '{}' not connected", binding.server_name))?;
 
         let args: Value = if call.function.arguments.trim().is_empty() {
@@ -179,84 +220,84 @@ impl McpHub {
 
         Ok(format_call_tool_result(&result))
     }
+}
 
-    async fn connect_one(
-        &mut self,
-        name: &str,
-        cfg: &McpServerConfig,
-    ) -> anyhow::Result<Vec<McpToolBinding>> {
-        let connect_timeout = Duration::from_secs(cfg.connect_timeout_secs.max(5));
-        let (client, docker_container) = if cfg.uses_http() {
-            let url = cfg.url.as_deref().unwrap_or("").trim();
-            let transport = StreamableHttpClientTransport::from_uri(url);
-            let client = tokio::time::timeout(connect_timeout, ().serve(transport))
-                .await
-                .map_err(|_| {
-                    anyhow::anyhow!(
-                        "mcp server '{name}': HTTP connect timed out after {}s (url: {url})",
-                        connect_timeout.as_secs()
-                    )
-                })??;
-            (client, None)
-        } else {
-            let command = cfg.command.trim();
-            if command.is_empty() {
-                anyhow::bail!("mcp server '{name}': command is empty (or set url for HTTP MCP)");
-            }
+async fn connect_server(
+    name: &str,
+    cfg: &McpServerConfig,
+) -> anyhow::Result<(Arc<McpServerHandle>, Vec<McpToolBinding>)> {
+    let connect_timeout = Duration::from_secs(cfg.connect_timeout_secs.max(5));
+    let (client, docker_container) = if cfg.uses_http() {
+        let url = cfg.url.as_deref().unwrap_or("").trim();
+        let transport = StreamableHttpClientTransport::from_uri(url);
+        let client = tokio::time::timeout(connect_timeout, ().serve(transport))
+            .await
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "mcp server '{name}': HTTP connect timed out after {}s (url: {url})",
+                    connect_timeout.as_secs()
+                )
+            })??;
+        (client, None)
+    } else {
+        let command = cfg.command.trim();
+        if command.is_empty() {
+            anyhow::bail!("mcp server '{name}': command is empty (or set url for HTTP MCP)");
+        }
 
-            let (mut cmd, docker_container) =
-                if let Some(prepared) = crate::docker_stdio::prepare_stdio_command(name, cfg)? {
-                    (prepared.command, Some(prepared.container_name))
-                } else {
-                    let mut cmd = Command::new(command);
-                    cmd.args(&cfg.args);
-                    (cmd, None)
-                };
-
-            for (k, v) in cfg.resolve_env() {
-                cmd.env(k, v);
-            }
-            cmd.stdin(std::process::Stdio::null());
-
-            let transport = TokioChildProcess::new(cmd.configure(|c| {
-                c.kill_on_drop(true);
-            }))?;
-
-            let client = match tokio::time::timeout(connect_timeout, ().serve(transport)).await {
-                Ok(Ok(client)) => client,
-                Ok(Err(e)) => {
-                    if let Some(ref c) = docker_container {
-                        crate::docker_stdio::stop_mcp_container(c);
-                    }
-                    return Err(e.into());
-                }
-                Err(_) => {
-                    if let Some(ref c) = docker_container {
-                        crate::docker_stdio::stop_mcp_container(c);
-                    }
-                    anyhow::bail!(
-                        "mcp server '{name}': connect timed out after {}s",
-                        connect_timeout.as_secs()
-                    );
-                }
+        let (mut cmd, docker_container) =
+            if let Some(prepared) = crate::docker_stdio::prepare_stdio_command(name, cfg)? {
+                (prepared.command, Some(prepared.container_name))
+            } else {
+                let mut cmd = Command::new(command);
+                cmd.args(&cfg.args);
+                (cmd, None)
             };
-            (client, docker_container)
+
+        for (k, v) in cfg.resolve_env() {
+            cmd.env(k, v);
+        }
+        cmd.stdin(std::process::Stdio::null());
+
+        let transport = TokioChildProcess::new(cmd.configure(|c| {
+            c.kill_on_drop(true);
+        }))?;
+
+        let client = match tokio::time::timeout(connect_timeout, ().serve(transport)).await {
+            Ok(Ok(client)) => client,
+            Ok(Err(e)) => {
+                if let Some(ref c) = docker_container {
+                    crate::docker_stdio::stop_mcp_container(c);
+                }
+                return Err(e.into());
+            }
+            Err(_) => {
+                if let Some(ref c) = docker_container {
+                    crate::docker_stdio::stop_mcp_container(c);
+                }
+                anyhow::bail!(
+                    "mcp server '{name}': connect timed out after {}s",
+                    connect_timeout.as_secs()
+                );
+            }
         };
+        (client, docker_container)
+    };
 
-        let tools = client.list_all_tools().await?;
-        let bindings = register_tools(name, cfg, &tools)?;
+    let tools = client.list_all_tools().await?;
+    let bindings = register_tools(name, cfg, &tools)?;
 
-        self.servers.insert(
-            name.to_string(),
-            Arc::new(McpServerHandle {
-                client: Mutex::new(client),
-                timeout: Duration::from_secs(cfg.timeout_secs.max(5)),
-                docker_container,
-            }),
-        );
+    let handle = Arc::new(McpServerHandle {
+        client: Mutex::new(client),
+        timeout: Duration::from_secs(cfg.timeout_secs.max(5)),
+        docker_container,
+    });
 
-        Ok(bindings)
-    }
+    Ok((handle, bindings))
+}
+
+fn is_transport_closed(err: &anyhow::Error) -> bool {
+    err.to_string().contains("Transport closed")
 }
 
 /// `browser_navigate` defaults to `waitUntil: load`, which never fires on heavy pages

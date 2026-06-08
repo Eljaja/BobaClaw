@@ -35,6 +35,7 @@ MCP client timeout per hub config. Agent retries after reading error; no blind r
 | Error | Agent response |
 |-------|----------------|
 | Unknown tool name | List available MCP tools or fix name |
+| `Transport closed` | MCP subprocess or HTTP session died mid-call; retry tool once or use `exec`; restart gateway if persistent |
 | Docker MCP container failure | Report error; suggest `bobaclaw doctor` |
 | Navigation blocked | Try alternate approach; stop after repeated failure |
 

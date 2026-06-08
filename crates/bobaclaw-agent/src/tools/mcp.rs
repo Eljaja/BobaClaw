@@ -35,7 +35,8 @@ pub async fn handle_mcp_tool(
         },
     );
 
-    result.map(|_| body)
+    // Return tool errors as body text so the agent loop can recover (same as exec).
+    Ok(body)
 }
 
 pub fn is_mcp_tool(hub: Option<&Arc<McpHub>>, name: &str) -> bool {
