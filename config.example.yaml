@@ -10,6 +10,18 @@ default_agent_group: home
 agent:
   # Max LLM↔tool loop steps per user message (each tool batch = one step).
   max_tool_iterations: 60
+  # Parent-mode nudges when the model replies without tool calls (tools are offered).
+  max_action_retries: 2
+  # Retries when the model ends the loop without user-visible text.
+  max_empty_response_retries: 3
+
+context:
+  compression_enabled: true
+  context_window_tokens: 128000
+  reserve_tokens: 16000
+  keep_recent_messages: 8
+  # Proactive compaction before each LLM call when estimate exceeds this fraction of the window.
+  pre_call_compact_ratio: 0.8
 
 executor:
   backend: bubblewrap   # bubblewrap | docker

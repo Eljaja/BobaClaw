@@ -14,7 +14,7 @@ use crate::progress::{emit, AgentEvent, AgentProgress};
 use crate::prompt::build_system_prompt;
 use crate::review::build_review_snapshot;
 use crate::subagent::SubagentManager;
-use crate::tool_loop::{run_tool_loop, ToolPersistEntry};
+use crate::tool_loop::{parent_turn_offered_tools, run_tool_loop, ToolPersistEntry};
 use crate::tools::build_parent_tool_specs;
 use crate::turn_context::{TurnContext, TurnMode};
 
@@ -122,7 +122,7 @@ pub async fn run_agent_turn(
     let subagents_enabled = config.subagents.enabled && subagent.is_some();
     let tools = build_parent_tool_specs(mcp, subagents_enabled);
 
-    let requires_action = user_request_requires_tools(&req.user_text);
+    let requires_action = parent_turn_offered_tools(TurnMode::Parent, &tools);
     let turn_ctx = TurnContext::parent(session_id);
     let max_tool_iterations = config.agent.max_tool_iterations;
 
@@ -266,54 +266,9 @@ fn build_persisted_assistant(final_text: &str, tools: &[ToolPersistEntry]) -> St
     s
 }
 
-/// Heuristic: user expects commands/tools, not a plan-only reply.
-pub fn user_request_requires_tools(text: &str) -> bool {
-    let lower = text.to_lowercase();
-    const VERBS: &[&str] = &[
-        "скачай",
-        "download",
-        "fetch",
-        "curl",
-        "wget",
-        "run ",
-        "execute",
-        "exec ",
-        "install",
-        "build",
-        "compile",
-        "проверь",
-        "check ",
-        "test ",
-        "fix ",
-        "deploy",
-        "ssh ",
-        "запусти",
-        "установ",
-        "собери",
-        "выполни",
-        "scrape",
-        "парси",
-        "parse ",
-        "create ",
-        "создай",
-        "удали",
-        "delete ",
-        "write ",
-        "запиши",
-    ];
-    VERBS.iter().any(|v| lower.contains(v))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn requires_tools_detects_action_verbs() {
-        assert!(user_request_requires_tools("Скачай сайт example.com"));
-        assert!(user_request_requires_tools("please run npm test"));
-        assert!(!user_request_requires_tools("what is Rust?"));
-    }
 
     #[test]
     fn persisted_assistant_includes_tool_block() {

@@ -1,3 +1,4 @@
+use bobaclaw_core::TOOL_BODY_PERSIST_MAX_CHARS;
 use bobaclaw_provider::ConversationMessage;
 
 const CHARS_PER_TOKEN: usize = 4;
@@ -35,7 +36,7 @@ pub fn transcript_lines(messages: &[(String, String)]) -> String {
 }
 
 fn prune_old_tool_body(body: &str) -> String {
-    if body.len() > 4000 {
+    if body.len() > TOOL_BODY_PERSIST_MAX_CHARS {
         "[Old tool output cleared to save context — full log in run_dir/result.json if needed]"
             .to_string()
     } else {

@@ -2,6 +2,7 @@ pub mod agent_config;
 pub mod channels;
 pub mod config;
 pub mod context_config;
+pub mod limits;
 pub mod mcp;
 pub mod paths;
 pub mod policy;
@@ -22,6 +23,7 @@ pub use config::{
     ProviderConfig,
 };
 pub use context_config::ContextConfig;
+pub use limits::TOOL_BODY_PERSIST_MAX_CHARS;
 pub use mcp::{McpServerConfig, McpServers};
 pub use paths::BobaPaths;
 pub use policy::{

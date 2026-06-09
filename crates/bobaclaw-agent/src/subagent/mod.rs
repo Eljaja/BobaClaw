@@ -16,7 +16,7 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::progress::{emit, AgentEvent, AgentProgress};
-use crate::prompt::{build_subagent_system_prompt, SUBAGENT_USER_TASK_PREFIX};
+use crate::prompt::{build_subagent_system_prompt, load_subagent_task_prefix};
 use crate::spawn_completer::SpawnCompleter;
 use crate::tool_loop::run_tool_loop;
 use crate::tools::build_child_tool_specs;
@@ -218,8 +218,10 @@ impl SubagentManager {
         let skills = SkillRegistry::load_enabled(&self.paths.group_workspace(&req.agent_group))?;
         let preset_cfg = preset.and_then(|id| self.config.subagents.preset(id));
         let workspace = self.paths.group_workspace(&req.agent_group);
-        let system = build_subagent_system_prompt(&workspace, preset_cfg);
-        let user_content = format_subagent_user_message(task, context, preset_cfg, &skills);
+        let system = build_subagent_system_prompt(&self.paths, &workspace, preset_cfg);
+        let task_prefix = load_subagent_task_prefix(&self.paths);
+        let user_content =
+            format_subagent_user_message(&task_prefix, task, context, preset_cfg, &skills);
 
         let mut messages = vec![
             ConversationMessage::system(system),
@@ -443,12 +445,13 @@ async fn finalize_subagent_ledger(
 }
 
 fn format_subagent_user_message(
+    task_prefix: &str,
     task: &str,
     context: Option<&str>,
     preset: Option<&bobaclaw_core::SubagentPreset>,
     skills: &SkillRegistry,
 ) -> String {
-    let mut parts = vec![format!("{SUBAGENT_USER_TASK_PREFIX}\n{task}")];
+    let mut parts = vec![format!("{task_prefix}\n{task}")];
     if let Some(ctx) = context.filter(|s| !s.trim().is_empty()) {
         parts.push(format!("\nAdditional context from parent:\n{ctx}"));
     }
