@@ -1,67 +1,341 @@
 # BobaClaw
 
-Workspace for designing a personal AI assistant in the **Claw** ecosystem (OpenClaw and related projects).
+**BobaClaw** is a personal AI ChatOps agent built in **Rust**. It executes tasks in an isolated sandbox, exposes HTTP and messaging channels, and runs as a long-lived daemon or single-shot CLI tool.
 
-Runtime is **Rust** in `crates/`; reference snapshots live in `references/` (read-only).
+> Part of the **Claw** ecosystem (OpenClaw and related projects). Runtime code lives in `crates/`.
 
-## Quick start
+---
+
+## Prerequisites
+
+| Component | Minimum | Recommended |
+|-----------|---------|-------------|
+| Rust | 1.75 | latest stable |
+| OS | Linux / WSL2 | Linux (Ubuntu 22.04+) |
+| Executor backend | bubblewrap | Docker |
+| API key | OpenAI-compatible | — |
+
+---
+
+## Quick Start
+
+### Build
 
 ```bash
-# WSL / Linux
-cd bobaClaw
+git clone https://github.com/Eljaja/BobaClaw.git
+cd BobaClaw
 cargo build --release
-export OPENAI_API_KEY=sk-...
-./target/release/bobaclaw init
-./target/release/bobaclaw doctor
-./target/release/bobaclaw chat              # interactive REPL
-./target/release/bobaclaw agent --message "Hello"
-./target/release/bobaclaw gateway start     # http://127.0.0.1:18790
 ```
 
-Sandbox capsule smoke test: `bobaclaw agent --message "run: echo hello"`.
+Binary: `./target/release/bobaclaw`
 
-### Optional: Obscura browser (MCP)
+### Configure
 
 ```bash
-make install-obscura-mcp          # pull Obscura image + config snippet
-# uncomment obscura in ~/.bobaclaw/config.yaml (Docker stdio; see config.example.yaml)
-bobaclaw doctor                   # mcp obscura: OK, 12 tool(s)
+mkdir -p ~/.bobaclaw
+cp config.example.yaml ~/.bobaclaw/config.yaml
+# Edit config.yaml — at minimum set your API key:
+export OPENAI_API_KEY=sk-...
 ```
 
-## Agent-first harness
+### Initialize
 
-This repository follows the **harness-engineering** template for agentic development (based on [Harness-engineering](https://github.com/Eljaja/Harness-engineering)):
+```bash
+./target/release/bobaclaw init
+```
 
-| Path | Purpose |
-|------|---------|
-| [AGENTS.md](AGENTS.md) | Operating contract for Cursor / contributors |
-| [.cursor/rules/](.cursor/rules/) | Cursor rules for workflow, Rust, prompt, contracts |
-| [plans/](plans/) | Plans for multi-file and high-risk changes |
-| [harness/](harness/) | Tool, sandbox, and policy contracts |
-| [evals/](evals/) | Smoke scenarios for CI |
+### Check environment
 
-Before handoff: `make ci`. Before merge to `main`: `make ci-full` (or `make lint`).
+```bash
+./target/release/bobaclaw doctor
+```
 
-**Language:** all contributor instructions (`AGENTS.md`, `.cursor/rules/`, `harness/`, `evals/`, `plans/`, harness docs) are **English only**.
+`doctor` validates bubblewrap, Docker, network connectivity, and configuration.
+
+### Interactive chat
+
+```bash
+./target/release/bobaclaw chat
+```
+
+Readline-powered REPL with terminal Markdown rendering and slash commands.
+
+### One-shot request
+
+```bash
+./target/release/bobaclaw agent --message "Hello, what's the current time?"
+```
+
+### Telegram bot
+
+```bash
+./target/release/bobaclaw channel telegram start
+```
+
+Long-polls Telegram Bot API. New users must complete **pairing** before chatting — see [Pairing](#pairing) below.
+
+### HTTP Gateway
+
+```bash
+./target/release/bobaclaw gateway start
+```
+
+Starts an HTTP server with a REST API and OpenAI-compatible endpoint (`/v1/chat/completions`).
+
+### Scheduler
+
+```bash
+# Schedule a one-shot reminder (fires in 5 minutes)
+./target/release/bobaclaw schedule add "Check the results" --delay-seconds 300
+
+# List pending tasks
+./target/release/bobaclaw schedule list
+
+# Cancel a task
+./target/release/bobaclaw schedule cancel <task-id>
+
+# Run the background cron daemon
+./target/release/bobaclaw scheduler start
+```
+
+### Skills
+
+```bash
+# List installed skills
+./target/release/bobaclaw skills list
+
+# Show skill contents
+./target/release/bobaclaw skills view <skill-name>
+
+# Enable / disable a skill
+./target/release/bobaclaw skills enable <skill-name>
+./target/release/bobaclaw skills disable <skill-name>
+
+# Generate a skill from a template
+./target/release/bobaclaw skill-forge create \
+  --name my-skill \
+  --description "Does something useful"
+```
+
+---
+
+## Architecture
+
+```
+BobaClaw
+├── crates/
+│   ├── bobaclaw              # CLI wrapper (clap)
+│   ├── bobaclaw-core         # Config, paths, request model
+│   ├── bobaclaw-agent        # Core agent: LLM ↔ tools loop
+│   ├── bobaclaw-executor     # Sandbox (bubblewrap / Docker)
+│   ├── bobaclaw-gateway      # HTTP API (axum)
+│   ├── bobaclaw-channel-telegram  # Telegram Bot API polling
+│   ├── bobaclaw-scheduler    # Cron + delayed tasks
+│   ├── bobaclaw-skills       # Skill registry and state
+│   ├── bobaclaw-skill-forge  # Skill template generator
+│   ├── bobaclaw-mcp          # MCP server (Model Context Protocol)
+│   ├── bobaclaw-provider     # OpenAI-compatible provider
+│   └── bobaclaw-state        # Persistent state storage
+├── config.example.yaml       # Annotated configuration file
+├── docker-compose.prod.yml   # Production deployment
+└── docs/
+    ├── ARCHITECTURE.md       # System design and rationale
+    ├── features.md           # Feature matrix and backlog
+    ├── best-practices.md     # Harness engineering guidelines
+    └── ci-cd.md              # CI/CD pipeline reference
+```
+
+### Executor sandbox
+
+The agent runs commands in an isolated environment:
+
+| Backend | Isolation | Requirements |
+|---------|-----------|-------------|
+| `bwrap` | Linux user namespace | `bubblewrap` + user namespaces |
+| `docker` | container | Docker daemon running |
+
+Configure in `~/.bobaclaw/config.yaml`:
+
+```yaml
+executor:
+  backend: docker    # or "bwrap"
+  sandbox_packages: true
+```
+
+---
+
+## Configuration
+
+Key sections in `~/.bobaclaw/config.yaml`:
+
+```yaml
+provider:
+  base_url: https://api.openai.com/v1   # or custom OpenAI-compatible endpoint
+  api_key_env: OPENAI_API_KEY           # env var holding the key
+  model: gpt-4o-mini
+
+default_agent_group: home               # workspace group name
+
+agent:
+  max_tool_iterations: 60               # max LLM↔tool loop steps per message
+  max_action_retries: 2                 # retries when model doesn't call tools
+  max_empty_response_retries: 3         # retries on silent agent responses
+
+context:
+  max_history_tokens: 32000
+  compact_threshold_tokens: 28000
+
+executor:
+  backend: docker                       # "bwrap" or "docker"
+  sandbox_packages: true
+
+gateway:
+  host: 127.0.0.1
+  port: 8080
+```
+
+### Environment variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `OPENAI_API_KEY` | Yes | API key for the provider |
+| `BOBACLAW_HOME` | No | Override `~/.bobaclaw` (default) |
+| `BOBACLAW_LOG` | No | Log level: `info`, `debug`, `trace` |
+
+---
+
+## Pairing (Telegram)
+
+New Telegram users must be approved before they can chat with the agent.
+
+1. Add your bot via [@BotFather](https://t.me/BotFather) and save the token.
+2. Start a DM with the bot — it will reply with a pairing code.
+3. From the host machine:
+
+```bash
+# List pending pairing codes
+./target/release/bobaclaw pairing list --channel telegram
+
+# Approve a user
+./target/release/bobaclaw pairing approve --channel telegram <code>
+```
+
+---
+
+## Docker / Production
+
+### Build a Docker image
+
+```dockerfile
+# Dockerfile
+FROM rust:1.75-slim AS builder
+WORKDIR /app
+COPY . .
+RUN cargo build --release
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bubblewrap ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /app/target/release/bobaclaw /usr/local/bin/
+ENTRYPOINT ["bobaclaw"]
+```
+
+### Run with docker-compose
+
+```bash
+cp docker-compose.prod.yml docker-compose.yml
+# Set OPENAI_API_KEY and TELEGRAM_BOT_TOKEN in your environment
+docker compose up -d
+```
+
+### Run without Docker (production)
+
+Use a systemd unit for the gateway and scheduler daemons:
+
+```ini
+[Unit]
+Description=BobaClaw Gateway
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/bobaclaw gateway start
+Restart=always
+Environment=OPENAI_API_KEY=<key>
+Environment=BOBACLAW_HOME=/var/lib/bobaclaw
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl enable --now bobaclaw-gateway.service
+sudo systemctl enable --now bobaclaw-scheduler.service
+```
+
+---
+
+## Contributing
+
+See [AGENTS.md](./AGENTS.md) for the repository operating contract.
+
+### Development workflow
+
+```bash
+# 1. Fork and clone
+git clone https://github.com/<your-fork>/BobaClaw.git
+cd BobaClaw
+
+# 2. Create a branch
+git checkout -b feature/my-feature
+
+# 3. Make changes, run tests
+cargo test
+
+# 4. Verify structure and secrets scan
+python3 scripts/check_repo_structure.py
+python3 scripts/scan_secrets.py
+
+# 5. Commit and push
+git commit -m "type: concise change description"
+git push origin feature/my-feature
+
+# 6. Open a PR against main
+```
+
+### Commit convention
+
+```
+<type>: <short description>
+
+[optional body]
+```
+
+Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`.
+
+### CI checklist
+
+- [ ] `cargo test` passes
+- [ ] `cargo clippy -- -D warnings` clean
+- [ ] `python3 scripts/check_repo_structure.py` clean
+- [ ] `python3 scripts/scan_secrets.py` clean
+- [ ] Smoke eval passes (see `scripts/run_smoke_eval.py`)
+- [ ] PR description explains **what** changed and **why**
+
+---
 
 ## Documentation
 
-| Document | Contents |
-|----------|----------|
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Target architecture, reference comparison, components, security, phases |
-| [docs/agent-first-repository.md](docs/agent-first-repository.md) | Agent-first repository layout |
-| [docs/best-practices.md](docs/best-practices.md) | Harness engineering practices |
-| [docs/ci-cd.md](docs/ci-cd.md) | CI/CD for agentic development |
-| [docs/adr/](docs/adr/) | ADRs: Rust stack, state.db, executor profiles, Skill Forge |
+| File | Description |
+|------|-------------|
+| [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) | System design, rationale, and trade-offs |
+| [docs/features.md](./docs/features.md) | Feature matrix and backlog |
+| [docs/best-practices.md](./docs/best-practices.md) | Harness engineering guidelines |
+| [docs/ci-cd.md](./docs/ci-cd.md) | CI/CD pipeline reference |
+| [docs/evals.md](./docs/evals.md) | Evaluation methodology |
+| [AGENTS.md](./AGENTS.md) | Repository operating contract for AI agents |
 
-## References
+---
 
-| Project | Path | Role in portfolio |
-|---------|------|-------------------|
-| OpenClaw | `references/openclaw` | Full feature set, gateway, channels, apps |
-| Hermes Agent | `references/hermes-agent` | Learning loop, migration, cloud backends |
-| nanoClaw | `references/nanoClaw` | Minimal code, Docker isolation |
-| NullClaw | `references/nullclaw` | Edge, Zig, vtable plugins |
-| PicoClaw | `references/picoClaw` | Go, lightweight hardware, broad channels |
+## License
 
-Update snapshots: `git pull` inside each directory under `references/` (separate git repositories).
+MIT — see [Cargo.toml](./Cargo.toml).
