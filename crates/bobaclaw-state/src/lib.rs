@@ -5,6 +5,7 @@ mod pairing;
 mod routes;
 mod scheduled;
 mod session;
+mod spawn_jobs;
 
 pub use cron::{CronJobRow, CronStore};
 pub use db::StateDb;
@@ -13,3 +14,4 @@ pub use pairing::{PairingRow, PairingStore};
 pub use routes::RouteStore;
 pub use scheduled::{ScheduledTask, ScheduledTaskStore};
 pub use session::SessionStore;
+pub use spawn_jobs::{SpawnJobRecord, SpawnJobStore};

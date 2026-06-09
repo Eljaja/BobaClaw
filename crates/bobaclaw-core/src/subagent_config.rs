@@ -27,6 +27,49 @@ pub struct SubagentConfig {
     pub presets: HashMap<String, SubagentPreset>,
     #[serde(default)]
     pub backends: SubagentBackendsConfig,
+    #[serde(default)]
+    pub spawn: SpawnFeedbackConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpawnFeedbackConfig {
+    #[serde(default = "default_true")]
+    pub notify_on_complete: bool,
+    #[serde(default = "default_true")]
+    pub wake_parent_on_complete: bool,
+    #[serde(default)]
+    pub wake_on_failure: bool,
+    #[serde(default = "default_wake_max_per_hour")]
+    pub wake_max_per_hour_per_session: u32,
+    #[serde(default = "default_result_max_chars")]
+    pub result_persist_chars: usize,
+    #[serde(default = "default_job_retention_days")]
+    pub job_retention_days: u32,
+}
+
+impl Default for SpawnFeedbackConfig {
+    fn default() -> Self {
+        Self {
+            notify_on_complete: true,
+            wake_parent_on_complete: true,
+            wake_on_failure: false,
+            wake_max_per_hour_per_session: default_wake_max_per_hour(),
+            result_persist_chars: default_result_max_chars(),
+            job_retention_days: default_job_retention_days(),
+        }
+    }
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_wake_max_per_hour() -> u32 {
+    10
+}
+
+fn default_job_retention_days() -> u32 {
+    30
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -221,6 +264,7 @@ impl Default for SubagentConfig {
             model: None,
             presets: HashMap::new(),
             backends: SubagentBackendsConfig::default(),
+            spawn: SpawnFeedbackConfig::default(),
         }
     }
 }

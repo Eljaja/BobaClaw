@@ -8,7 +8,9 @@ Run a **fresh-context** agent loop for multi-step or context-heavy work. Parent 
 
 Use **`subagent`** when the parent should **wait** for the result in the same turn.
 
-Use **`spawn`** for fire-and-forget background work; completion is appended to the parent session.
+Use **`spawn`** for fire-and-forget background work. Jobs are persisted in `spawn_jobs` (SQLite); completion is appended to the parent session and may notify/wake the parent per `subagents.spawn` config.
+
+Use **`spawn_status`** to query a job in the **current session** by `task_id` and/or `label`.
 
 ## When to delegate (parent agent)
 
@@ -24,6 +26,32 @@ Use **`spawn`** for fire-and-forget background work; completion is appended to t
 - Direct factual question from memory or a single tool call.
 - Task needs memory/skills/schedule writes (child cannot).
 - Nested delegation (`max_depth: 1` — child cannot call `subagent` / `spawn`).
+
+## Input (`spawn`)
+
+```json
+{
+  "task": "string (required)",
+  "label": "string (optional)",
+  "context": "string (optional)",
+  "preset": "string (optional)",
+  "backend": "string (optional)",
+  "wake": "boolean (optional, default from subagents.spawn.wake_parent_on_complete)"
+}
+```
+
+Returns `task_id` (`spawn_<uuid>`). Status and result preview are queryable via `spawn_status` or operator surfaces (`/subagents`, gateway API).
+
+## Input (`spawn_status`)
+
+```json
+{
+  "task_id": "string (optional, spawn_<uuid>)",
+  "label": "string (optional, latest match in session)"
+}
+```
+
+At least one of `task_id` or `label` is required. Scope is the **current session only** — jobs from other sessions return not found.
 
 ## Input (`subagent`)
 
@@ -55,7 +83,8 @@ Presets may widen allowlist via `tools_allowlist`.
 - Native: ephemeral in-memory child messages; optional `persist_child_sessions` writes `sessions.parent_session_id`.
 - Run Ledger entry per subagent run (`subagent_*` id).
 - External backends: sandboxed CLI subprocess with dedicated capsule (longer timeout).
-- `spawn`: background task; appends `[Subagent … completed]` assistant message on success.
+- `spawn`: background task row in `spawn_jobs`; on success appends `[Subagent … completed]` to session, optional channel notify, optional parent wake (`IngressKind::SpawnWake`).
+- `spawn_status`: read-only query of `spawn_jobs` for the current session.
 
 ## Approval requirements
 
@@ -76,9 +105,29 @@ Presets may widen allowlist via `tools_allowlist`.
 - Progress: `SubagentStart`, `SubagentEnd` (label, exit code, preview).
 - Run Ledger: subagent run id, parent session id, backend name, exit code.
 
+## Spawn feedback config (`subagents.spawn`)
+
+| Key | Default | Purpose |
+|-----|---------|---------|
+| `notify_on_complete` | `true` | Short push via `ChannelDelivery` (`cli` outbox, `telegram` sendMessage) |
+| `wake_parent_on_complete` | `true` | Synthetic user turn after success |
+| `wake_on_failure` | `false` | Wake on non-zero exit |
+| `wake_max_per_hour_per_session` | `10` | Rate limit wakes |
+| `result_persist_chars` | `12000` | Truncate `result_body` in DB |
+| `job_retention_days` | `30` | Retention (cleanup deferred) |
+
+Wake is skipped when `session:{id}` is busy or rate limit exceeded. Job still finalizes and session history is updated.
+
+## Operator surfaces
+
+- CLI / Telegram `/subagents` — list jobs for current session (`SpawnJobStore::list_by_session`).
+- Gateway: `GET /api/spawn/jobs?session_id=`, `GET /api/spawn/jobs/:id` (operator-local, same access as `/api/agent`).
+
 ## Tests
 
 ```bash
-cargo test -p bobaclaw-agent subagent prompt specs tool_loop
+cargo test -p bobaclaw-state spawn
+cargo test -p bobaclaw-agent spawn subagent prompt specs tool_loop
 cargo test -p bobaclaw-core subagent
+cargo test -p bobaclaw-gateway
 ```

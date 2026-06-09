@@ -74,6 +74,17 @@ Violation symptom: user receives the progress header (`BobaClaw` + `Thinking… 
 - `tracing::debug` on failed progress edits.
 - `tracing::warn` on finalize failure after plain retry.
 
+## Spawn completion delivery
+
+Background `spawn` jobs store `deliver_channel=telegram` and `deliver_peer` (chat id) at spawn time.
+
+| Event | Behavior |
+|-------|----------|
+| Notify (`notify_on_complete`) | `TelegramChannelDelivery::notify_spawn_complete` — short `sendMessage` summary |
+| Parent wake (`wake_parent_on_complete`) | `IngressKind::SpawnWake` turn; `present_wake_reply` sends full assistant text (split if long) |
+
+Same agent core as inbound messages; only presentation differs. Standalone telegram binary wires `SpawnCompleter` + `TelegramChannelDelivery` on startup.
+
 ## Tests
 
 ```bash

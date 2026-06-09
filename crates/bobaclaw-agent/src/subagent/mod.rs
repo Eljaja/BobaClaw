@@ -9,19 +9,20 @@ use bobaclaw_mcp::McpHub;
 use bobaclaw_provider::ConversationMessage;
 use bobaclaw_provider::ToolChatClient;
 use bobaclaw_skills::SkillRegistry;
-use bobaclaw_state::RunLedger;
+use bobaclaw_state::{RunLedger, SpawnJobStore};
 use sqlx::SqlitePool;
-use tokio::sync::{Mutex, Semaphore};
+use tokio::sync::{RwLock, Semaphore};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::progress::{emit, AgentEvent, AgentProgress};
 use crate::prompt::{build_subagent_system_prompt, SUBAGENT_USER_TASK_PREFIX};
+use crate::spawn_completer::SpawnCompleter;
 use crate::tool_loop::run_tool_loop;
 use crate::tools::build_child_tool_specs;
 use crate::turn_context::{TurnContext, TurnMode};
 
-pub use spawn_queue::SpawnTaskRecord;
+pub use spawn_queue::format_spawn_task_list;
 
 pub struct SubagentRunResult {
     pub body: String,
@@ -33,7 +34,7 @@ pub struct SubagentManager {
     paths: BobaPaths,
     config: BobaConfig,
     semaphore: Arc<Semaphore>,
-    spawn_tasks: Arc<Mutex<Vec<SpawnTaskRecord>>>,
+    completer: Arc<RwLock<Option<Arc<SpawnCompleter>>>>,
 }
 
 impl SubagentManager {
@@ -43,8 +44,12 @@ impl SubagentManager {
             paths,
             config,
             semaphore: Arc::new(Semaphore::new(max)),
-            spawn_tasks: Arc::new(Mutex::new(Vec::new())),
+            completer: Arc::new(RwLock::new(None)),
         }
+    }
+
+    pub async fn set_completer(&self, completer: Arc<SpawnCompleter>) {
+        *self.completer.write().await = Some(completer);
     }
 
     pub async fn run_sync(
@@ -61,6 +66,7 @@ impl SubagentManager {
         backend: Option<&str>,
         progress: Option<&dyn AgentProgress>,
         cancel: &CancellationToken,
+        spawn_job_id: Option<&str>,
     ) -> anyhow::Result<SubagentRunResult> {
         if !self.config.subagents.enabled {
             anyhow::bail!("subagents are disabled in config (subagents.enabled: false)");
@@ -102,9 +108,25 @@ impl SubagentManager {
                 &format!("subagent-{backend_name}"),
             )
             .await?;
-        ledger.mark_started(&subagent_id).await?;
+        if let Err(e) = ledger.mark_started(&subagent_id).await {
+            ledger
+                .mark_denied(&subagent_id, &format!("mark_started failed: {e}"))
+                .await
+                .ok();
+            return Err(e);
+        }
 
-        let child_ctx = TurnContext::child(turn_ctx, label.map(str::to_string));
+        if let Some(job_id) = spawn_job_id {
+            SpawnJobStore::new(pool)
+                .link_subagent(job_id, &subagent_id)
+                .await
+                .ok();
+        }
+
+        let mut child_ctx = TurnContext::child(turn_ctx, label.map(str::to_string));
+        child_ctx.run_id = Some(subagent_id.clone());
+        let parent_run_id = child_ctx.parent_run_id.clone();
+
         let outcome = match backend_name {
             "native" => {
                 self.run_native(
@@ -166,57 +188,17 @@ impl SubagentManager {
             other => anyhow::bail!("unknown subagent backend: {other}"),
         };
 
-        let result = match outcome {
-            Ok(mut r) => {
-                if r.subagent_id.is_empty() {
-                    r.subagent_id = subagent_id.clone();
-                }
-                r
-            }
-            Err(e) => {
-                let msg = format!("subagent failed: {e}");
-                ledger.mark_denied(&subagent_id, &msg).await.ok();
-                emit(
-                    progress,
-                    AgentEvent::SubagentEnd {
-                        id: subagent_id.clone(),
-                        exit_code: 1,
-                        preview: truncate_preview(&msg, 120),
-                    },
-                );
-                return Ok(SubagentRunResult {
-                    body: msg,
-                    exit_code: 1,
-                    subagent_id,
-                });
-            }
-        };
-
-        let summary = serde_json::json!({
-            "label": label,
-            "task": truncate_preview(task, 200),
-            "backend": backend_name,
-            "parent_run_id": turn_ctx.parent_run_id,
-        })
-        .to_string();
-        ledger
-            .mark_completed(&subagent_id, result.exit_code, &summary)
-            .await?;
-
-        emit(
+        finalize_subagent_ledger(
+            &ledger,
+            &subagent_id,
+            label,
+            task,
+            backend_name,
+            parent_run_id.as_deref(),
+            outcome,
             progress,
-            AgentEvent::SubagentEnd {
-                id: subagent_id.clone(),
-                exit_code: result.exit_code,
-                preview: truncate_preview(&result.body, 120),
-            },
-        );
-
-        Ok(SubagentRunResult {
-            body: result.body,
-            exit_code: result.exit_code,
-            subagent_id,
-        })
+        )
+        .await
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -299,6 +281,7 @@ impl SubagentManager {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn spawn_async(
         &self,
         pool: Arc<SqlitePool>,
@@ -311,25 +294,40 @@ impl SubagentManager {
         context: Option<String>,
         preset: Option<String>,
         backend: Option<String>,
+        wake_parent: bool,
+        cancel: CancellationToken,
     ) -> anyhow::Result<String> {
-        let task_id = format!("spawn_{}", Uuid::new_v4());
+        let deliver_channel = req.spawn_deliver_channel().to_string();
+        let (deliver_peer, deliver_thread_id) = req
+            .channel_peer
+            .as_ref()
+            .map(|p| (Some(p.peer.clone()), p.thread_id.clone()))
+            .unwrap_or((None, None));
+
+        let job = SpawnJobStore::new(&pool)
+            .insert_running(
+                &session_id,
+                &req.agent_group,
+                req.ingress.as_str(),
+                Some(&deliver_channel),
+                deliver_peer.as_deref(),
+                deliver_thread_id.as_deref(),
+                label.as_deref(),
+                truncate_preview(&task, 200).as_str(),
+                backend.as_deref(),
+                Some(&req.request_id.to_string()),
+                wake_parent,
+            )
+            .await?;
+
+        let task_id = job.id.clone();
         let manager = self.clone_inner();
-        let task_id_clone = task_id.clone();
-        let session_for_delivery = session_id.clone();
         let label_for_reply = label.clone();
+        let job_id = task_id.clone();
+        let completer = self.completer.read().await.clone();
 
-        {
-            let mut tasks = self.spawn_tasks.lock().await;
-            tasks.push(SpawnTaskRecord {
-                id: task_id.clone(),
-                label: label.clone(),
-                status: "running".into(),
-                result: None,
-            });
-        }
-
+        let child_cancel = cancel.child_token();
         tokio::spawn(async move {
-            let cancel = CancellationToken::new();
             let result = manager
                 .run_sync(
                     &pool,
@@ -343,38 +341,33 @@ impl SubagentManager {
                     preset.as_deref(),
                     backend.as_deref(),
                     None,
-                    &cancel,
+                    &child_cancel,
+                    Some(&job_id),
                 )
                 .await;
 
-            let (status, preview) = match &result {
-                Ok(r) => ("completed".into(), truncate_preview(&r.body, 200)),
-                Err(e) => ("failed".into(), truncate_preview(&e.to_string(), 200)),
-            };
-
-            {
-                let mut tasks = manager.spawn_tasks.lock().await;
-                if let Some(rec) = tasks.iter_mut().find(|t| t.id == task_id_clone) {
-                    rec.status = status;
-                    rec.result = Some(preview.clone());
-                }
-            }
-
-            if let Ok(r) = result {
-                let delivery = format!(
-                    "[Subagent `{}` completed]\n\n{}",
-                    label.as_deref().unwrap_or(&task_id_clone),
-                    r.body
-                );
-                let sessions = bobaclaw_state::SessionStore::new(&pool);
-                let _ = sessions
-                    .append_message(&session_for_delivery, "assistant", &delivery)
+            let cancelled = child_cancel.is_cancelled();
+            if let Some(completer) = completer {
+                let _ = completer.on_complete(&job_id, &result, cancelled).await;
+            } else if !cancelled {
+                let store = SpawnJobStore::new(&pool);
+                let (status, exit_code, preview) = match &result {
+                    Ok(r) if r.exit_code == 0 => (
+                        "completed",
+                        Some(r.exit_code),
+                        truncate_preview(&r.body, 200),
+                    ),
+                    Ok(r) => ("failed", Some(r.exit_code), truncate_preview(&r.body, 200)),
+                    Err(e) => ("failed", None, truncate_preview(&e.to_string(), 200)),
+                };
+                let _ = store
+                    .finalize(&job_id, status, exit_code, Some(&preview), None)
                     .await;
             }
         });
 
         Ok(format!(
-            "Spawned background subagent `{}` (id: {task_id}). Result will be appended to the session when complete.",
+            "Spawned background subagent `{}` (id: {task_id}). Use spawn_status to check progress; result will be delivered when complete.",
             label_for_reply.as_deref().unwrap_or("unnamed")
         ))
     }
@@ -384,7 +377,67 @@ impl SubagentManager {
             paths: self.paths.clone(),
             config: self.config.clone(),
             semaphore: self.semaphore.clone(),
-            spawn_tasks: self.spawn_tasks.clone(),
+            completer: self.completer.clone(),
+        }
+    }
+}
+
+async fn finalize_subagent_ledger(
+    ledger: &RunLedger<'_>,
+    subagent_id: &str,
+    label: Option<&str>,
+    task: &str,
+    backend_name: &str,
+    parent_run_id: Option<&str>,
+    outcome: anyhow::Result<SubagentRunResult>,
+    progress: Option<&dyn AgentProgress>,
+) -> anyhow::Result<SubagentRunResult> {
+    match outcome {
+        Ok(mut result) => {
+            if result.subagent_id.is_empty() {
+                result.subagent_id = subagent_id.to_string();
+            }
+            let summary = serde_json::json!({
+                "label": label,
+                "task": truncate_preview(task, 200),
+                "backend": backend_name,
+                "parent_run_id": parent_run_id,
+            })
+            .to_string();
+            if let Err(e) = ledger
+                .mark_completed(subagent_id, result.exit_code, &summary)
+                .await
+            {
+                let msg = format!("mark_completed failed: {e}");
+                ledger.mark_denied(subagent_id, &msg).await.ok();
+                return Err(e);
+            }
+            emit(
+                progress,
+                AgentEvent::SubagentEnd {
+                    id: subagent_id.to_string(),
+                    exit_code: result.exit_code,
+                    preview: truncate_preview(&result.body, 120),
+                },
+            );
+            Ok(result)
+        }
+        Err(e) => {
+            let msg = format!("subagent failed: {e}");
+            ledger.mark_denied(subagent_id, &msg).await.ok();
+            emit(
+                progress,
+                AgentEvent::SubagentEnd {
+                    id: subagent_id.to_string(),
+                    exit_code: 1,
+                    preview: truncate_preview(&msg, 120),
+                },
+            );
+            Ok(SubagentRunResult {
+                body: msg,
+                exit_code: 1,
+                subagent_id: subagent_id.to_string(),
+            })
         }
     }
 }

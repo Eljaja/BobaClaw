@@ -2,11 +2,14 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use bobaclaw_core::{BobaConfig, BobaPaths, NormalizedRequest};
+use bobaclaw_state::SpawnJobRecord;
 use tokio::sync::{Mutex, Semaphore};
 use tokio_util::sync::CancellationToken;
 
+use crate::channel_delivery::DeliveryRegistry;
 use crate::loop_::{AgentLoop, AgentResponse};
 use crate::progress::AgentProgress;
+use crate::spawn_completer::SpawnCompleter;
 
 /// Routes agent turns: parallel across sessions, serialized within one scope.
 /// New inbound for the same scope preempts the in-flight turn (Hermes interrupt mode).
@@ -65,6 +68,28 @@ impl AgentDispatcher {
 
     pub async fn is_scope_busy(&self, scope: &str) -> bool {
         self.active_turns.lock().await.contains_key(scope)
+    }
+
+    pub async fn wire_spawn_feedback(
+        self: &Arc<Self>,
+        config: BobaConfig,
+        deliveries: Arc<DeliveryRegistry>,
+    ) {
+        let pool = self.agent.pool().clone();
+        let completer = Arc::new(SpawnCompleter::new(config, pool, self.clone(), deliveries));
+        self.agent.set_spawn_completer(completer).await;
+    }
+
+    pub async fn list_spawn_jobs(&self, session_id: &str) -> Vec<SpawnJobRecord> {
+        self.agent.list_spawn_jobs(session_id).await
+    }
+
+    pub async fn get_spawn_job(&self, id: &str) -> Option<SpawnJobRecord> {
+        bobaclaw_state::SpawnJobStore::new(self.agent.pool())
+            .get(id)
+            .await
+            .ok()
+            .flatten()
     }
 
     async fn preempt_scope(&self, scope: &str) -> bool {

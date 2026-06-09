@@ -1,12 +1,13 @@
 use std::sync::Arc;
 
-use axum::extract::State;
+use axum::extract::{Path, Query, State};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use bobaclaw_agent::AgentDispatcher;
-use bobaclaw_channel_telegram::run_telegram_polling;
+use bobaclaw_agent::{build_delivery_registry, AgentDispatcher};
+use bobaclaw_channel_telegram::{run_telegram_polling, TelegramApi, TelegramChannelDelivery};
 use bobaclaw_core::{BobaConfig, BobaPaths, IngressKind, NormalizedRequest};
 use bobaclaw_scheduler::spawn_in_process_scheduler;
+use bobaclaw_state::SpawnJobRecord;
 use serde::{Deserialize, Serialize};
 
 pub struct GatewayState {
@@ -40,8 +41,15 @@ pub struct Choice {
     pub finish_reason: &'static str,
 }
 
+#[derive(Debug, Deserialize)]
+struct SpawnJobsQuery {
+    session_id: String,
+}
+
 pub async fn serve(paths: BobaPaths, config: BobaConfig) -> anyhow::Result<()> {
     let dispatcher = Arc::new(AgentDispatcher::new(paths.clone(), config.clone()).await?);
+    wire_spawn_feedback(&dispatcher, &paths, &config).await?;
+
     let state = Arc::new(GatewayState {
         dispatcher: dispatcher.clone(),
         config: config.clone(),
@@ -52,6 +60,8 @@ pub async fn serve(paths: BobaPaths, config: BobaConfig) -> anyhow::Result<()> {
         .route("/v1/chat/completions", post(chat_completions))
         .route("/api/agent", post(api_agent))
         .route("/api/agent/interrupt", post(api_agent_interrupt))
+        .route("/api/spawn/jobs", get(api_spawn_jobs_list))
+        .route("/api/spawn/jobs/:id", get(api_spawn_job_get))
         .with_state(state);
 
     spawn_in_process_scheduler(paths.clone(), config.clone(), Some(dispatcher.clone()));
@@ -78,8 +88,43 @@ pub async fn serve(paths: BobaPaths, config: BobaConfig) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub async fn wire_spawn_feedback(
+    dispatcher: &Arc<AgentDispatcher>,
+    paths: &BobaPaths,
+    config: &BobaConfig,
+) -> anyhow::Result<()> {
+    let telegram = if config.channels.telegram.enabled {
+        let api = Arc::new(TelegramApi::from_config(&config.channels.telegram)?);
+        Some(Arc::new(TelegramChannelDelivery::new(config.clone(), api))
+            as Arc<dyn bobaclaw_agent::ChannelDelivery>)
+    } else {
+        None
+    };
+    let deliveries = build_delivery_registry(paths.home.clone(), telegram);
+    dispatcher
+        .wire_spawn_feedback(config.clone(), deliveries)
+        .await;
+    Ok(())
+}
+
 async fn health() -> &'static str {
     "ok"
+}
+
+async fn api_spawn_jobs_list(
+    State(state): State<Arc<GatewayState>>,
+    Query(query): Query<SpawnJobsQuery>,
+) -> Json<Vec<SpawnJobRecord>> {
+    let jobs = state.dispatcher.list_spawn_jobs(&query.session_id).await;
+    Json(jobs)
+}
+
+async fn api_spawn_job_get(
+    State(state): State<Arc<GatewayState>>,
+    Path(id): Path<String>,
+) -> Json<Option<SpawnJobRecord>> {
+    let job = state.dispatcher.get_spawn_job(&id).await;
+    Json(job)
 }
 
 async fn chat_completions(

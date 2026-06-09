@@ -5,6 +5,7 @@ use serde::Deserialize;
 use serde_json::json;
 use sqlx::SqlitePool;
 use std::sync::Arc;
+use tokio_util::sync::CancellationToken;
 
 use crate::subagent::SubagentManager;
 use crate::turn_context::TurnContext;
@@ -28,7 +29,8 @@ pub fn spawn_tool_spec() -> ToolSpec {
                     "label": { "type": "string" },
                     "context": { "type": "string" },
                     "preset": { "type": "string" },
-                    "backend": { "type": "string" }
+                    "backend": { "type": "string" },
+                    "wake": { "type": "boolean", "description": "Wake parent on completion (default from config)" }
                 },
                 "required": ["task"]
             }),
@@ -51,6 +53,8 @@ struct SpawnArgs {
     preset: Option<String>,
     #[serde(default)]
     backend: Option<String>,
+    #[serde(default)]
+    wake: Option<bool>,
 }
 
 pub struct SpawnToolResult {
@@ -69,7 +73,7 @@ pub async fn handle_spawn_tool(
     turn_ctx: &TurnContext,
     call: &ToolCall,
     _progress: Option<&dyn crate::progress::AgentProgress>,
-    _cancel: &tokio_util::sync::CancellationToken,
+    cancel: &CancellationToken,
     manager: &SubagentManager,
 ) -> anyhow::Result<SpawnToolResult> {
     if call.function.name != SPAWN {
@@ -102,6 +106,9 @@ pub async fn handle_spawn_tool(
         Some(h) => h.clone(),
         None => Arc::new(McpHub::connect(&config.mcp_servers).await),
     };
+    let wake_parent = args
+        .wake
+        .unwrap_or(config.subagents.spawn.wake_parent_on_complete);
     let msg = manager
         .spawn_async(
             Arc::new(pool.clone()),
@@ -114,6 +121,8 @@ pub async fn handle_spawn_tool(
             args.context,
             args.preset,
             args.backend,
+            wake_parent,
+            cancel.clone(),
         )
         .await?;
 

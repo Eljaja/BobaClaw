@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use bobaclaw_agent::{force_compact_session, AgentDispatcher};
+use bobaclaw_agent::{
+    build_delivery_registry, force_compact_session, format_spawn_task_list, AgentDispatcher,
+};
 use bobaclaw_core::{BobaConfig, BobaPaths, NormalizedRequest};
 use bobaclaw_scheduler::spawn_embedded_scheduler;
 
@@ -21,6 +23,8 @@ pub async fn run_chat(
     let dispatcher = match config.resolve_api_key() {
         Ok(_) => {
             let shared = Arc::new(AgentDispatcher::new(paths.clone(), config.clone()).await?);
+            let deliveries = build_delivery_registry(paths.home.clone(), None);
+            shared.wire_spawn_feedback(config.clone(), deliveries).await;
             spawn_embedded_scheduler(paths.clone(), config.clone(), Some(shared.clone()));
             Some(shared)
         }
@@ -166,6 +170,21 @@ async fn handle_slash(
                 Ok(Some("Нет активного запроса.".into()))
             }
         }
+        "/subagents" | "/spawns" => {
+            if !config.subagents.enabled {
+                return Ok(Some(
+                    "Субагенты отключены в config (subagents.enabled: false).".into(),
+                ));
+            }
+            let Some(dispatcher) = dispatcher else {
+                return Ok(Some("Нет активного агента (нужен API key).".into()));
+            };
+            let id = SessionStore::new(pool)
+                .get_or_create_cli(agent_group)
+                .await?;
+            let tasks = dispatcher.list_spawn_jobs(&id).await;
+            Ok(Some(format_spawn_task_list(&tasks)))
+        }
         "/compact" => {
             let id = SessionStore::new(pool)
                 .get_or_create_cli(agent_group)
@@ -244,6 +263,7 @@ fn help_text() -> String {
   /session         id сессии
   /compact         LLM-сжатие истории (Hermes/OpenClaw)
   /stop            прервать текущий запрос (как Hermes Ctrl+C)
+  /subagents       фоновые субагенты (spawn) этой сессии
   /skills          skills в workspace
   /doctor          проверка окружения
 

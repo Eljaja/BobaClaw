@@ -12,8 +12,9 @@ use crate::progress::{emit, AgentEvent, AgentProgress};
 use crate::subagent::SubagentManager;
 use crate::tools::{
     handle_exec_tool, handle_mcp_tool, handle_memory_tool, handle_schedule_tool, handle_skill_tool,
-    handle_spawn_tool, handle_subagent_tool, is_mcp_tool, is_memory_tool, is_skill_tool,
-    is_spawn_tool, is_subagent_tool, MEMORY_MANAGE, SKILL_MANAGE,
+    handle_spawn_status_tool, handle_spawn_tool, handle_subagent_tool, is_mcp_tool, is_memory_tool,
+    is_skill_tool, is_spawn_status_tool, is_spawn_tool, is_subagent_tool, MEMORY_MANAGE,
+    SKILL_MANAGE,
 };
 use crate::turn_context::{TurnContext, TurnMode};
 
@@ -364,18 +365,44 @@ pub(crate) async fn run_tool_call(
     let name = call.function.name.clone();
     let (body, exit_code) = if is_subagent_tool(&name) {
         let manager = subagent.ok_or_else(|| anyhow::anyhow!("subagent manager not configured"))?;
+        let delegation_ctx = turn_ctx.for_delegation(last_run_id.as_deref());
         let body = handle_subagent_tool(
-            paths, config, pool, mcp, session_id, req, turn_ctx, call, progress, cancel, manager,
+            paths,
+            config,
+            pool,
+            mcp,
+            session_id,
+            req,
+            &delegation_ctx,
+            call,
+            progress,
+            cancel,
+            manager,
         )
         .await?;
         *executed = true;
         (body.body, body.exit_code)
     } else if is_spawn_tool(&name) {
         let manager = subagent.ok_or_else(|| anyhow::anyhow!("subagent manager not configured"))?;
+        let delegation_ctx = turn_ctx.for_delegation(last_run_id.as_deref());
         let body = handle_spawn_tool(
-            paths, config, pool, mcp, session_id, req, turn_ctx, call, progress, cancel, manager,
+            paths,
+            config,
+            pool,
+            mcp,
+            session_id,
+            req,
+            &delegation_ctx,
+            call,
+            progress,
+            cancel,
+            manager,
         )
         .await?;
+        *executed = true;
+        (body.body, body.exit_code)
+    } else if is_spawn_status_tool(&name) {
+        let body = handle_spawn_status_tool(paths, config, pool, session_id, call).await?;
         *executed = true;
         (body.body, body.exit_code)
     } else if matches!(

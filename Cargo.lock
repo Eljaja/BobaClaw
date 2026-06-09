@@ -238,6 +238,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-recursion",
+ "async-trait",
  "bobaclaw-core",
  "bobaclaw-executor",
  "bobaclaw-mcp",
@@ -263,6 +264,7 @@ name = "bobaclaw-channel-telegram"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "bobaclaw-agent",
  "bobaclaw-core",
  "bobaclaw-state",
@@ -316,6 +318,7 @@ dependencies = [
  "bobaclaw-channel-telegram",
  "bobaclaw-core",
  "bobaclaw-scheduler",
+ "bobaclaw-state",
  "serde",
  "serde_json",
  "tokio",

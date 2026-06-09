@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use bobaclaw_agent::AgentDispatcher;
+use bobaclaw_agent::{build_delivery_registry, format_spawn_task_list, AgentDispatcher};
 use bobaclaw_core::{
     evaluate_telegram_trust, resolve_agent_group, BobaConfig, BobaPaths, DmPolicy, IngressKind,
     NormalizedRequest, TelegramFormat, TrustDecision, TrustInput, WorkspaceAttachment,
@@ -10,6 +10,7 @@ use tracing::{error, info, warn};
 
 use crate::api::TelegramApi;
 use crate::commands::{parse_slash_command, telegram_help_text};
+use crate::delivery::TelegramChannelDelivery;
 use crate::ingress::{message_has_attachments, parse_message, InboundMessage};
 use crate::media::download_message_media;
 use crate::status::{initial_activity, stream_message};
@@ -25,7 +26,7 @@ pub async fn run_telegram_polling(
         Some(p) => info!("telegram Bot API proxy: {p}"),
         None => info!("telegram Bot API: direct (no proxy)"),
     }
-    let api = TelegramApi::from_config(tg)?;
+    let api = Arc::new(TelegramApi::from_config(tg)?);
     let me = api.get_me().await?;
     info!(
         "telegram bot connected: id={} username={:?}",
@@ -42,7 +43,18 @@ pub async fn run_telegram_polling(
 
     let dispatcher = match shared_dispatcher {
         Some(d) => d,
-        None => Arc::new(AgentDispatcher::new(paths.clone(), config.clone()).await?),
+        None => {
+            let d = Arc::new(AgentDispatcher::new(paths.clone(), config.clone()).await?);
+            let deliveries = build_delivery_registry(
+                paths.home.clone(),
+                Some(Arc::new(TelegramChannelDelivery::new(
+                    config.clone(),
+                    api.clone(),
+                ))),
+            );
+            d.wire_spawn_feedback(config.clone(), deliveries).await;
+            d
+        }
     };
     let state = StateDb::open(&paths.state_db).await?;
     let bot_id = me.id;
@@ -96,9 +108,15 @@ pub async fn run_telegram_polling(
                 &inbound.peer,
             );
 
-            if let Some((reply, stop_only)) =
-                handle_slash_command(&state, &inbound, &agent_group, bot_username.as_deref())
-                    .await?
+            if let Some((reply, stop_only)) = handle_slash_command(
+                &config,
+                &state,
+                &dispatcher,
+                &inbound,
+                &agent_group,
+                bot_username.as_deref(),
+            )
+            .await?
             {
                 if stop_only {
                     let scope = NormalizedRequest::telegram(
@@ -284,7 +302,9 @@ async fn check_trust(config: &BobaConfig, state: &StateDb, inbound: &InboundMess
 }
 
 async fn handle_slash_command(
+    config: &BobaConfig,
     state: &StateDb,
+    dispatcher: &AgentDispatcher,
     inbound: &InboundMessage,
     agent_group: &str,
     bot_username: Option<&str>,
@@ -308,6 +328,21 @@ async fn handle_slash_command(
         }
         "help" | "h" | "commands" => Ok(Some((telegram_help_text().to_string(), false))),
         "stop" => Ok(Some(("⚡ Прерываю текущий запрос…".into(), true))),
+        "subagents" | "spawns" => {
+            if !config.subagents.enabled {
+                return Ok(Some((
+                    "Субагенты отключены в config (subagents.enabled: false).".into(),
+                    false,
+                )));
+            }
+            let req =
+                NormalizedRequest::telegram("", agent_group, inbound.peer.clone(), Vec::new());
+            let session_id = SessionStore::new(state.pool())
+                .resolve_session(&req)
+                .await?;
+            let tasks = dispatcher.list_spawn_jobs(&session_id).await;
+            Ok(Some((format_spawn_task_list(&tasks), false)))
+        }
         _ => Ok(None),
     }
 }
