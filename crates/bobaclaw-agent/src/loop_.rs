@@ -7,7 +7,7 @@ use bobaclaw_state::{SessionStore, SpawnJobRecord, SpawnJobStore, StateDb};
 use tokio_util::sync::CancellationToken;
 
 use crate::progress::AgentProgress;
-use crate::review::{maybe_post_turn_review, PostTurnSave, TurnReviewMetrics};
+use crate::review::{maybe_post_turn_review, TurnReviewMetrics};
 use crate::spawn_completer::SpawnCompleter;
 use crate::subagent::SubagentManager;
 use crate::turn::run_agent_turn;
@@ -110,39 +110,25 @@ impl AgentLoop {
         )
         .await?;
 
-        let mut reply_text = outcome.text.clone();
-        let mut auto_saved_skill = None;
-        let mut auto_saved_memory = None;
+        let reply_text = outcome.text.clone();
+        let auto_saved_skill = None;
+        let auto_saved_memory = None;
 
         if !outcome.interrupted {
-            let review = maybe_post_turn_review(
-                &self.paths,
-                &self.config,
-                &req.agent_group,
-                &TurnReviewMetrics {
-                    tool_call_count: outcome.tool_call_count,
-                    skill_manage_used: outcome.skill_manage_used,
-                    memory_manage_used: outcome.memory_manage_used,
-                    user_message_count,
-                },
-                &outcome.review_snapshot,
-            )
-            .await;
-
-            if let Some(PostTurnSave::Memory { path }) = review.memory {
-                reply_text.push_str(&format!(
-                    "\n\nSaved to memory `{}` (background review).",
-                    path
-                ));
-                auto_saved_memory = Some(path);
-            }
-            if let Some(PostTurnSave::Skill { name }) = review.skill {
-                reply_text.push_str(&format!(
-                    "\n\nSaved skill `{}` for reuse (background review).",
-                    name
-                ));
-                auto_saved_skill = Some(name);
-            }
+            let paths = self.paths.clone();
+            let config = self.config.clone();
+            let agent_group = req.agent_group.clone();
+            let metrics = TurnReviewMetrics {
+                tool_call_count: outcome.tool_call_count,
+                skill_manage_used: outcome.skill_manage_used,
+                memory_manage_used: outcome.memory_manage_used,
+                user_message_count,
+            };
+            let snapshot = outcome.review_snapshot.clone();
+            tokio::spawn(async move {
+                let _ = maybe_post_turn_review(&paths, &config, &agent_group, &metrics, &snapshot)
+                    .await;
+            });
         }
 
         sessions

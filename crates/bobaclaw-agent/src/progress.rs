@@ -19,7 +19,7 @@ pub enum AgentEvent {
     /// Partial assistant text (channel streaming, e.g. Telegram editMessage).
     AssistantChunk { text: String },
     /// Model ended the tool loop without user-visible text; asking again.
-    EmptyResponseRetry { attempt: u32 },
+    EmptyResponseRetry { attempt: u32, max_attempts: u32 },
     /// User or operator cancelled the in-flight turn.
     Interrupted,
     /// Subagent delegation started.
@@ -143,8 +143,11 @@ pub fn format_step_block(event: &AgentEvent) -> String {
         }
         AgentEvent::Compacting { .. } => "Compacting context…".into(),
         AgentEvent::AssistantChunk { text } => format_assistant_block(text),
-        AgentEvent::EmptyResponseRetry { attempt } => {
-            format!("No reply text yet — retrying summary ({attempt}/{MAX_EMPTY_RESPONSE_RETRIES})")
+        AgentEvent::EmptyResponseRetry {
+            attempt,
+            max_attempts,
+        } => {
+            format!("No reply text yet — retrying summary ({attempt}/{max_attempts})")
         }
         AgentEvent::Interrupted => "⚡ Прервано".into(),
         AgentEvent::SubagentStart { label, .. } => format!("Subagent `{label}` starting…"),
@@ -167,8 +170,6 @@ pub fn format_step_block(event: &AgentEvent) -> String {
         }
     }
 }
-
-const MAX_EMPTY_RESPONSE_RETRIES: u32 = 3;
 
 fn format_assistant_block(text: &str) -> String {
     let t = text.trim();

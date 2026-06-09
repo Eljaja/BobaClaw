@@ -1,7 +1,8 @@
 //! System prompt assembly — synthesis of Hermes (stable tiers, tool discipline,
 //! compaction) and OpenClaw (workspace bootstrap files, memory rules).
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, LazyLock, Mutex};
 
 use bobaclaw_core::{head_tail_with_hint, BobaPaths};
 use bobaclaw_mcp::McpHub;
@@ -197,6 +198,64 @@ pub fn strip_summary_prefix(content: &str) -> String {
 
 // --- Workspace bootstrap (OpenClaw files + Hermes Project Context header) ---
 
+static PROMPT_CACHE: LazyLock<Mutex<HashMap<String, String>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn file_mtime_key(path: &Path) -> String {
+    std::fs::metadata(path)
+        .ok()
+        .and_then(|m| m.modified().ok())
+        .map(|t| format!("{t:?}"))
+        .unwrap_or_else(|| "missing".into())
+}
+
+fn workspace_fingerprint(
+    workspace: &Path,
+    skill_names: &[String],
+    mcp_tool_count: usize,
+) -> String {
+    let mut parts = Vec::new();
+    for name in ["SOUL.md", "BOBACLAW.md", "USER.md", "TOOLS.md", "MEMORY.md"] {
+        parts.push(format!("{name}:{}", file_mtime_key(&workspace.join(name))));
+    }
+    let mem_dir = workspace.join("memory");
+    if let Ok(entries) = std::fs::read_dir(&mem_dir) {
+        let mut files: Vec<_> = entries.flatten().map(|e| e.path()).collect();
+        files.sort();
+        for path in files {
+            if path.is_file() {
+                let label = path.file_name().and_then(|n| n.to_str()).unwrap_or("?");
+                parts.push(format!("{label}:{}", file_mtime_key(&path)));
+            }
+        }
+    }
+    parts.push(format!("skills:{}", skill_names.join(",")));
+    parts.push(format!("mcp:{mcp_tool_count}"));
+    parts.join("|")
+}
+
+fn load_prompt_file(path: &Path) -> Option<String> {
+    let body = std::fs::read_to_string(path).ok()?;
+    let trimmed = body.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+/// Operator override: `~/.bobaclaw/prompts/subagent.md` (falls back to built-in).
+pub fn load_subagent_system_base(paths: &BobaPaths) -> String {
+    load_prompt_file(&paths.home.join("prompts/subagent.md"))
+        .unwrap_or_else(|| SUBAGENT_SYSTEM.to_string())
+}
+
+/// Operator override: `~/.bobaclaw/prompts/subagent-task-prefix.md`.
+pub fn load_subagent_task_prefix(paths: &BobaPaths) -> String {
+    load_prompt_file(&paths.home.join("prompts/subagent-task-prefix.md"))
+        .unwrap_or_else(|| SUBAGENT_USER_TASK_PREFIX.to_string())
+}
+
 pub fn build_system_prompt(
     paths: &BobaPaths,
     group: &str,
@@ -204,6 +263,33 @@ pub fn build_system_prompt(
     mcp: Option<&Arc<McpHub>>,
 ) -> String {
     let workspace_path = paths.group_workspace(group);
+    let mcp_tool_count = mcp
+        .filter(|hub| !hub.is_empty())
+        .map(|hub| hub.tool_specs().len())
+        .unwrap_or(0);
+    let cache_key = format!(
+        "{group}|{}",
+        workspace_fingerprint(workspace_path.as_path(), &skills.names(), mcp_tool_count)
+    );
+    if let Ok(cache) = PROMPT_CACHE.lock() {
+        if let Some(hit) = cache.get(&cache_key) {
+            return hit.clone();
+        }
+    }
+
+    let prompt = assemble_system_prompt(&workspace_path, skills, mcp, mcp_tool_count);
+    if let Ok(mut cache) = PROMPT_CACHE.lock() {
+        cache.insert(cache_key, prompt.clone());
+    }
+    prompt
+}
+
+fn assemble_system_prompt(
+    workspace_path: &Path,
+    skills: &SkillRegistry,
+    mcp: Option<&Arc<McpHub>>,
+    mcp_tool_count: usize,
+) -> String {
     let workspace = workspace_path.display().to_string();
 
     let mut stable = vec![
@@ -228,8 +314,8 @@ pub fn build_system_prompt(
         ));
     }
 
-    if let Some(hub) = mcp {
-        if !hub.is_empty() {
+    if mcp_tool_count > 0 {
+        if let Some(hub) = mcp {
             stable.push(MCP_HINT.to_string());
             let specs = hub.tool_specs();
             let names: Vec<_> = specs.iter().map(|t| t.function.name.as_str()).collect();
@@ -278,13 +364,13 @@ pub fn build_system_prompt(
 
 /// Child subagent system prompt — workspace path only, optional preset extras.
 pub fn build_subagent_system_prompt(
+    paths: &BobaPaths,
     workspace: &Path,
     preset: Option<&bobaclaw_core::SubagentPreset>,
 ) -> String {
     let workspace = workspace.display().to_string();
-    let mut parts = vec![format!(
-        "{SUBAGENT_SYSTEM}\n\nWorkspace (sandbox cwd): {workspace}"
-    )];
+    let base = load_subagent_system_base(paths);
+    let mut parts = vec![format!("{base}\n\nWorkspace (sandbox cwd): {workspace}")];
     if let Some(preset) = preset {
         if let Some(extra) = preset.system_extra.as_deref().filter(|s| !s.is_empty()) {
             parts.push(format!("\nPreset instructions:\n{extra}"));
@@ -295,6 +381,8 @@ pub fn build_subagent_system_prompt(
 
 /// Max total chars injected from `memory/*` (excluding MEMORY.md).
 const MEMORY_DIR_MAX_CHARS: usize = 8_000;
+/// Per-file cap inside the memory dir budget.
+const MEMORY_FILE_MAX_CHARS: usize = 2_000;
 
 fn load_memory_dir(workspace: &Path) -> Vec<String> {
     let dir = workspace.join("memory");
@@ -338,7 +426,16 @@ fn load_memory_dir(workspace: &Path) -> Vec<String> {
         if body.is_empty() {
             continue;
         }
-        let truncated = truncate_context_file(&rel, &body);
+        let capped = truncate_context_file(&rel, &body);
+        let truncated = if capped.chars().count() > MEMORY_FILE_MAX_CHARS {
+            head_tail_with_hint(
+                &capped,
+                MEMORY_FILE_MAX_CHARS,
+                &format!("truncated {rel} ({MEMORY_FILE_MAX_CHARS} char per-file cap)"),
+            )
+        } else {
+            capped
+        };
         budget = budget.saturating_sub(truncated.chars().count());
         sections.push(format!("## {rel}\n{truncated}"));
     }
@@ -386,7 +483,8 @@ mod tests {
     #[test]
     fn build_subagent_prompt_includes_sections() {
         let dir = tempfile::tempdir().unwrap();
-        let prompt = build_subagent_system_prompt(dir.path(), None);
+        let paths = BobaPaths::from_home(dir.path().to_path_buf());
+        let prompt = build_subagent_system_prompt(&paths, dir.path(), None);
         assert!(prompt.contains("## Done"));
         assert!(prompt.contains("cannot spawn subagents"));
         assert!(prompt.contains("Workspace (sandbox cwd)"));

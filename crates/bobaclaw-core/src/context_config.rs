@@ -12,6 +12,9 @@ pub struct ContextConfig {
     /// Recent messages kept verbatim at the tail (Hermes-style).
     #[serde(default = "default_keep_recent_messages")]
     pub keep_recent_messages: usize,
+    /// Proactive compaction when estimated tokens exceed this fraction of `context_window_tokens`.
+    #[serde(default = "default_pre_call_compact_ratio")]
+    pub pre_call_compact_ratio: f32,
 }
 
 fn default_compression_enabled() -> bool {
@@ -30,6 +33,10 @@ fn default_keep_recent_messages() -> usize {
     8
 }
 
+fn default_pre_call_compact_ratio() -> f32 {
+    0.8
+}
+
 impl Default for ContextConfig {
     fn default() -> Self {
         Self {
@@ -37,6 +44,7 @@ impl Default for ContextConfig {
             context_window_tokens: default_context_window_tokens(),
             reserve_tokens: default_reserve_tokens(),
             keep_recent_messages: default_keep_recent_messages(),
+            pre_call_compact_ratio: default_pre_call_compact_ratio(),
         }
     }
 }
@@ -45,6 +53,12 @@ impl ContextConfig {
     pub fn compact_threshold_tokens(&self) -> u32 {
         self.context_window_tokens
             .saturating_sub(self.reserve_tokens)
+    }
+
+    /// Token estimate at which the agent proactively compacts before an LLM call.
+    pub fn guard_threshold_tokens(&self) -> u32 {
+        let ratio = self.pre_call_compact_ratio.clamp(0.1, 0.95);
+        ((self.context_window_tokens as f32) * ratio).floor() as u32
     }
 }
 
@@ -56,6 +70,7 @@ mod tests {
     fn default_threshold() {
         let c = ContextConfig::default();
         assert_eq!(c.compact_threshold_tokens(), 112_000);
+        assert_eq!(c.guard_threshold_tokens(), 102_400);
         assert!(c.compression_enabled);
     }
 }

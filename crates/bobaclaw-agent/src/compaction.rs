@@ -9,6 +9,41 @@ use crate::prompt::{
     strip_summary_prefix, summarizer_user_message, SUMMARIZER_SYSTEM, SUMMARY_PREFIX,
 };
 
+/// Rebuild `messages` after compaction: keep system prompt + in-turn tail, refresh DB history.
+pub async fn maybe_ensure_context_budget(
+    pool: &SqlitePool,
+    config: &BobaConfig,
+    session_id: &str,
+    messages: &mut Vec<ConversationMessage>,
+    history_boundary: usize,
+    progress: Option<&dyn AgentProgress>,
+) -> anyhow::Result<()> {
+    if !config.context.compression_enabled {
+        return Ok(());
+    }
+    let tokens = estimate_tokens(messages);
+    if tokens < config.context.guard_threshold_tokens() {
+        return Ok(());
+    }
+    if !maybe_compact_session(pool, config, session_id, progress).await? {
+        return Ok(());
+    }
+    let sessions = SessionStore::new(pool);
+    let all = sessions.list_messages(session_id).await?;
+    let effective = effective_history(&all);
+    let fresh_history = history_to_conversation(&effective);
+    let system = messages
+        .first()
+        .cloned()
+        .unwrap_or_else(|| ConversationMessage::system(String::new()));
+    let in_turn = messages.get(history_boundary..).unwrap_or(&[]).to_vec();
+    messages.clear();
+    messages.push(system);
+    messages.extend(fresh_history);
+    messages.extend(in_turn);
+    Ok(())
+}
+
 fn last_compaction_index(rows: &[(String, String)]) -> Option<usize> {
     rows.iter()
         .enumerate()

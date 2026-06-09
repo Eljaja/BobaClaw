@@ -1,6 +1,7 @@
 mod exec;
 mod mcp;
 mod memory;
+mod router;
 mod schedule;
 mod skills;
 mod spawn;
@@ -11,6 +12,7 @@ mod subagent;
 pub use exec::{exec_tool_spec, handle_exec_tool};
 pub use mcp::{handle_mcp_tool, is_mcp_tool};
 pub use memory::{handle_memory_tool, is_memory_tool, memory_tool_spec, MEMORY_MANAGE};
+pub(crate) use router::{dispatch_tool_call, ToolCallContext, ToolCallOutcome};
 pub use schedule::{handle_schedule_tool, schedule_tool_specs};
 pub use skills::{
     child_skill_tool_specs, handle_skill_tool, is_skill_tool, skill_tool_specs, SKILL_MANAGE,
