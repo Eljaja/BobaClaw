@@ -61,7 +61,7 @@ pub async fn serve(paths: BobaPaths, config: BobaConfig) -> anyhow::Result<()> {
         .route("/api/agent", post(api_agent))
         .route("/api/agent/interrupt", post(api_agent_interrupt))
         .route("/api/spawn/jobs", get(api_spawn_jobs_list))
-        .route("/api/spawn/jobs/:id", get(api_spawn_job_get))
+        .route("/api/spawn/jobs/{id}", get(api_spawn_job_get))
         .with_state(state);
 
     spawn_in_process_scheduler(paths.clone(), config.clone(), Some(dispatcher.clone()));
