@@ -203,7 +203,7 @@ async fn run_external_command(
     let paths_workspace = paths.workspace.clone();
     let workspace_clone = workspace.clone();
     let run_dir_clone = run_dir.clone();
-    let timeout = timeout_secs.max(60);
+    let timeout = timeout_secs.max(1);
 
     let exec_fut = tokio::task::spawn_blocking(move || {
         SandboxExecutor::exec_command(

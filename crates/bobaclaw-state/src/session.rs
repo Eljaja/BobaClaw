@@ -201,6 +201,7 @@ fn ingress_source(kind: IngressKind) -> String {
         IngressKind::Webhook => "webhook",
         IngressKind::Chat => "chat",
         IngressKind::Telegram => "telegram",
+        IngressKind::SpawnWake => "spawn_wake",
     }
     .to_string()
 }

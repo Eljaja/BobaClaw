@@ -6,7 +6,7 @@ use bobaclaw_provider::ToolSpec;
 
 use super::{
     child_skill_tool_specs, exec_tool_spec, memory_tool_spec, schedule_tool_specs,
-    skill_tool_specs, spawn_tool_spec, subagent_tool_spec,
+    skill_tool_specs, spawn_status_tool_spec, spawn_tool_spec, subagent_tool_spec,
 };
 
 pub fn build_parent_tool_specs(
@@ -20,6 +20,7 @@ pub fn build_parent_tool_specs(
     if subagents_enabled {
         t.push(subagent_tool_spec());
         t.push(spawn_tool_spec());
+        t.push(spawn_status_tool_spec());
     }
     if let Some(hub) = mcp {
         t.extend(hub.tool_specs());
@@ -73,7 +74,9 @@ mod tests {
         let names: Vec<_> = specs.iter().map(|s| s.function.name.as_str()).collect();
         assert!(names.contains(&"exec"));
         assert!(names.contains(&"skill_view"));
-        assert!(!names.iter().any(|n| *n == "subagent" || *n == "spawn"));
+        assert!(!names
+            .iter()
+            .any(|n| { *n == "subagent" || *n == "spawn" || *n == "spawn_status" }));
         assert!(!names.iter().any(|n| n.starts_with("schedule")));
         assert!(!names.iter().any(|n| *n == "memory_manage"));
     }

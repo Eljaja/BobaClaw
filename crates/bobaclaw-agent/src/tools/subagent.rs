@@ -148,6 +148,7 @@ pub async fn handle_subagent_tool(
             args.backend.as_deref(),
             progress,
             cancel,
+            None,
         )
         .await?;
 

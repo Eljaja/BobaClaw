@@ -17,6 +17,23 @@ pub enum IngressKind {
     Webhook,
     Chat,
     Telegram,
+    /// Synthetic wake after background spawn completion.
+    SpawnWake,
+}
+
+impl IngressKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Cli => "cli",
+            Self::Rest => "rest",
+            Self::OpenAiCompat => "openai_compat",
+            Self::Cron => "cron",
+            Self::Webhook => "webhook",
+            Self::Chat => "chat",
+            Self::Telegram => "telegram",
+            Self::SpawnWake => "spawn_wake",
+        }
+    }
 }
 
 /// Workspace-relative attachment from a channel (Telegram, etc.).
@@ -159,6 +176,20 @@ impl NormalizedRequest {
             IngressKind::Chat => format!("chat:{}", self.agent_group),
             IngressKind::Webhook => format!("webhook:{}", self.agent_group),
             IngressKind::Telegram => format!("telegram:{}", self.agent_group),
+            IngressKind::SpawnWake => format!("spawn_wake:{}", self.agent_group),
+        }
+    }
+
+    /// Deliver channel key for spawn job persistence (mirrors scheduled_tasks).
+    pub fn spawn_deliver_channel(&self) -> &'static str {
+        match self.ingress {
+            IngressKind::Telegram => "telegram",
+            IngressKind::Cli => "cli",
+            IngressKind::Rest | IngressKind::OpenAiCompat => "api",
+            IngressKind::Cron => "cron",
+            IngressKind::Webhook => "webhook",
+            IngressKind::Chat => "chat",
+            IngressKind::SpawnWake => "spawn_wake",
         }
     }
 }

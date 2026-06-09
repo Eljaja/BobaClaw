@@ -6,6 +6,7 @@ edition.workspace = true
 [dependencies]
 anyhow.workspace = true
 async-recursion = "1.1"
+async-trait.workspace = true
 bobaclaw-core.workspace = true
 bobaclaw-executor.workspace = true
 bobaclaw-provider.workspace = true

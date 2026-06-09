@@ -6,6 +6,7 @@ description = "Telegram channel adapter for BobaClaw"
 
 [dependencies]
 anyhow.workspace = true
+async-trait.workspace = true
 bobaclaw-agent.workspace = true
 bobaclaw-core.workspace = true
 bobaclaw-state.workspace = true

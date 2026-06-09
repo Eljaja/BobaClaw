@@ -3,11 +3,12 @@ use std::sync::Arc;
 use bobaclaw_core::{BobaConfig, BobaPaths, NormalizedRequest};
 use bobaclaw_mcp::McpHub;
 use bobaclaw_skills::SkillRegistry;
-use bobaclaw_state::{SessionStore, StateDb};
+use bobaclaw_state::{SessionStore, SpawnJobRecord, SpawnJobStore, StateDb};
 use tokio_util::sync::CancellationToken;
 
 use crate::progress::AgentProgress;
 use crate::review::{maybe_post_turn_review, PostTurnSave, TurnReviewMetrics};
+use crate::spawn_completer::SpawnCompleter;
 use crate::subagent::SubagentManager;
 use crate::turn::run_agent_turn;
 
@@ -50,6 +51,25 @@ impl AgentLoop {
             mcp,
             subagent,
         })
+    }
+
+    pub fn pool(&self) -> &sqlx::SqlitePool {
+        self.state.pool()
+    }
+
+    pub fn subagent(&self) -> &Arc<SubagentManager> {
+        &self.subagent
+    }
+
+    pub async fn set_spawn_completer(&self, completer: Arc<SpawnCompleter>) {
+        self.subagent.set_completer(completer).await;
+    }
+
+    pub async fn list_spawn_jobs(&self, session_id: &str) -> Vec<SpawnJobRecord> {
+        SpawnJobStore::new(self.state.pool())
+            .list_by_session(session_id)
+            .await
+            .unwrap_or_default()
     }
 
     pub async fn handle(&self, req: NormalizedRequest) -> anyhow::Result<AgentResponse> {

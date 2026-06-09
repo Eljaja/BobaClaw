@@ -10,6 +10,7 @@ bobaclaw-agent.workspace = true
 bobaclaw-core.workspace = true
 bobaclaw-channel-telegram.workspace = true
 bobaclaw-scheduler.workspace = true
+bobaclaw-state.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true

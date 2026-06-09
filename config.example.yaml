@@ -115,6 +115,13 @@ subagents:
   result_max_chars: 12000
   persist_child_sessions: false
   default_backend: native
+  spawn:
+    notify_on_complete: true
+    wake_parent_on_complete: true
+    wake_on_failure: false
+    wake_max_per_hour_per_session: 10
+    result_persist_chars: 12000
+    job_retention_days: 30
   # model: gpt-4o-mini          # optional cheaper model for native children
   # presets:
   #   researcher:

@@ -92,6 +92,10 @@ impl TelegramApi {
                     command: "help",
                     description: "Справка по командам",
                 },
+                Cmd {
+                    command: "subagents",
+                    description: "Фоновые субагенты (spawn)",
+                },
             ],
         };
         let _: bool = self.call("setMyCommands", &body).await?;

@@ -28,6 +28,7 @@ pub fn telegram_help_text() -> &'static str {
     "Команды BobaClaw:\n\
      /new — новая сессия (сброс истории чата)\n\
      /stop — прервать текущий запрос\n\
+     /subagents — фоновые субагенты (spawn) этой сессии\n\
      /help — эта справка\n\
      /pair — код pairing (личные сообщения)"
 }
@@ -57,6 +58,18 @@ mod tests {
         assert_eq!(
             parse_slash_command("/help@MyBot extra", Some("MyBot")),
             Some(("help", "extra"))
+        );
+    }
+
+    #[test]
+    fn parse_subagents_command() {
+        assert_eq!(
+            parse_slash_command("/subagents", None),
+            Some(("subagents", ""))
+        );
+        assert_eq!(
+            parse_slash_command("/spawns@MyBot", Some("MyBot")),
+            Some(("spawns", ""))
         );
     }
 }
