@@ -26,6 +26,7 @@ Findings:
 - Inject skill descriptions (not just names) into the system prompt; widen matching to description words.
 - Harness contract docs for the new tools (`harness/tools/`).
 - Prompt hints (short, stable English additions to the memory/exec sections of `prompt.rs`).
+- When answers use `memory_search` or `memory_read`, cite the memory file path in the reply **Sources** section (see [`agent-response-source-citations.md`](agent-response-source-citations.md)).
 
 ### Out of scope
 

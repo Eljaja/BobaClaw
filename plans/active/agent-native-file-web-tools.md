@@ -21,6 +21,7 @@ Findings:
 - `file_write(path, contents)` — create/overwrite inside the workspace.
 - `file_edit(path, old_string, new_string, replace_all?)` — exact string replacement with uniqueness check.
 - `web_fetch(url)` — host-side HTTP GET with size cap, timeout, content-type allowlist (text/html/json), HTML-to-text reduction; respects a config kill switch (`tools.web_fetch.enabled`).
+- Prompt/tool hint: when the answer uses `web_fetch` content, cite the fetched URL in the reply **Sources** section (see [`agent-response-source-citations.md`](agent-response-source-citations.md)).
 - Path traversal guards (no `..`, no absolute paths, no symlink escape from workspace).
 - Run-ledger entries for file writes/edits (auditability on par with exec).
 - Harness contracts in `harness/tools/` and short prompt hints in `prompt.rs`.

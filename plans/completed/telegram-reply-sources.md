@@ -64,4 +64,4 @@ Revert branch `fix/telegram-thinking-leak-and-sources`.
 - changed files: `harness/channels/telegram.md`, `harness/AGENTS.md`, `crates/bobaclaw-channel-telegram/src/stream.rs`, `crates/bobaclaw-agent/src/prompt.rs`, `workspace-examples/home/TOOLS.md`, `plans/active/telegram-reply-sources.md`
 - validation run: `cargo fmt`, `cargo fmt --check`, `make ci` (exit 0)
 - known gaps: citation rule is prompt/workspace-only until dedicated fetch tools; progress may lag one edit interval before finalize
-- follow-up work: optional eval smoke entry for `harness/channels/telegram.md`
+- follow-up work: optional eval smoke entry for `harness/channels/telegram.md`; generalize Sources beyond browser MCP — see [`agent-response-source-citations.md`](../active/agent-response-source-citations.md)
