@@ -35,6 +35,7 @@ jobs:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
+      actions: write
       contents: read
       packages: write
     outputs:
@@ -53,8 +54,11 @@ jobs:
           if [ "${{ github.ref_type }}" = "tag" ]; then
             tag=$(echo "${{ github.ref_name }}" | tr '[:upper:]' '[:lower:]')
           fi
-          echo "bobaclaw_image=${REGISTRY}/${owner}/${repo}/bobaclaw:${tag}" >> "$GITHUB_OUTPUT"
-          echo "sandbox_image=${REGISTRY}/${owner}/${repo}/sandbox:${tag}" >> "$GITHUB_OUTPUT"
+          base="${REGISTRY}/${owner}/${repo}"
+          echo "bobaclaw_image=${base}/bobaclaw:${tag}" >> "$GITHUB_OUTPUT"
+          echo "sandbox_image=${base}/sandbox:${tag}" >> "$GITHUB_OUTPUT"
+          echo "bobaclaw_cache=${base}/bobaclaw:buildcache" >> "$GITHUB_OUTPUT"
+          echo "sandbox_cache=${base}/sandbox:buildcache" >> "$GITHUB_OUTPUT"
         env:
           REGISTRY: ${{ env.REGISTRY }}
 
@@ -75,8 +79,12 @@ jobs:
           file: docker/bobaclaw/Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.bobaclaw_image }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: |
+            type=registry,ref=${{ steps.meta.outputs.bobaclaw_cache }}
+            type=gha,scope=bobaclaw
+          cache-to: |
+            type=registry,ref=${{ steps.meta.outputs.bobaclaw_cache }},mode=max
+            type=gha,scope=bobaclaw,mode=max,ignore-error=true
 
       - name: Build and push sandbox image
         uses: docker/build-push-action@v6
@@ -86,8 +94,12 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.sandbox_image }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: |
+            type=registry,ref=${{ steps.meta.outputs.sandbox_cache }}
+            type=gha,scope=sandbox
+          cache-to: |
+            type=registry,ref=${{ steps.meta.outputs.sandbox_cache }},mode=max
+            type=gha,scope=sandbox,mode=max,ignore-error=true
 
   deploy:
     needs: build-and-push
