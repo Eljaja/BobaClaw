@@ -2,6 +2,10 @@
 
 Plans are durable task records for agent-generated or high-risk work on BobaClaw.
 
+## Feature backlog
+
+Ordered feature specs (F1–F16) live in [`backlog.md`](backlog.md). Each feature has a dedicated plan under `active/` (e.g. `f1-approval-flow.md`). Implement in backlog order unless a plan notes a dependency override. Move a plan to `completed/` when merged.
+
 ## Rules
 
 - Write all files in this directory in **English**.
