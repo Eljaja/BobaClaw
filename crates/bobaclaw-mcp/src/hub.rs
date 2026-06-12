@@ -6,6 +6,7 @@ use bobaclaw_core::{McpServerConfig, McpServers};
 use bobaclaw_provider::{FunctionSpec, ToolCall, ToolSpec};
 use rmcp::model::{CallToolRequestParams, Tool as McpTool};
 use rmcp::service::{RunningService, ServiceExt};
+use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
 use rmcp::transport::{ConfigureCommandExt, StreamableHttpClientTransport, TokioChildProcess};
 use rmcp::RoleClient;
 use serde_json::{json, Value};
@@ -229,7 +230,22 @@ async fn connect_server(
     let connect_timeout = Duration::from_secs(cfg.connect_timeout_secs.max(5));
     let (client, docker_container) = if cfg.uses_http() {
         let url = cfg.url.as_deref().unwrap_or("").trim();
-        let transport = StreamableHttpClientTransport::from_uri(url);
+        let mut transport_config = StreamableHttpClientTransportConfig::with_uri(Arc::from(url));
+        transport_config.auth_header = cfg.resolve_auth_token();
+
+        let mut client_builder = reqwest::Client::builder();
+        if let Some(proxy_url) = cfg.resolve_proxy_url() {
+            let proxy = reqwest::Proxy::all(&proxy_url).map_err(|e| {
+                anyhow::anyhow!("mcp server '{name}': invalid proxy_url '{proxy_url}': {e}")
+            })?;
+            client_builder = client_builder.proxy(proxy);
+            tracing::debug!("mcp server '{name}': HTTP MCP via proxy {proxy_url}");
+        }
+        let http_client = client_builder
+            .build()
+            .map_err(|e| anyhow::anyhow!("mcp server '{name}': HTTP client build failed: {e}"))?;
+
+        let transport = StreamableHttpClientTransport::with_client(http_client, transport_config);
         let client = tokio::time::timeout(connect_timeout, ().serve(transport))
             .await
             .map_err(|_| {

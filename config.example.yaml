@@ -104,6 +104,16 @@ mcp_servers:
   #   timeout_secs: 180
   #   connect_timeout_secs: 60
 
+  # Parallel Search MCP (Streamable HTTP). Free without auth; optional auth_env for higher limits.
+  # In Docker, use proxy_url when the host IP is blocked (e.g. Cloudflare) and an outbound proxy works.
+  # parallel_search:
+  #   url: https://search.parallel.ai/mcp
+  #   proxy_url: http://192.168.1.100:11882
+  #   auth_env: PARALLEL_API_KEY
+  #   enabled: true
+  #   timeout_secs: 120
+  #   connect_timeout_secs: 60
+
   # filesystem (stdio subprocess):
   #   command: npx
   #   args:
