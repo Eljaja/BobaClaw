@@ -51,6 +51,20 @@ The proven "after FTS" retrieval upgrade that keeps the local-first constraint: 
 
 Each stage gated on evidence from the previous one, not implemented speculatively:
 
+```mermaid
+flowchart LR
+    P0["Today<br/>append-only markdown,<br/>FTS schema unqueried,<br/>write-only memory"]
+    P1["v1: FTS recall<br/>memory_search / memory_read / run_view,<br/>review surfaced, daily notes,<br/>durable facts hook"]
+    PA["Stage A: reconciliation<br/>consolidation job + memory_facts<br/>(ADD/UPDATE/NOOP, supersede)"]
+    PB["Stage B: hybrid search<br/>sqlite-vec + RRF,<br/>embeddings of distilled layer only"]
+    PC["Stage C: entity graph<br/>(expected: never)"]
+
+    P0 --> P1
+    P1 -->|"duplicate pressure<br/>visible in memory files"| PA
+    PA -->|"evals: FTS misses<br/>paraphrase queries"| PB
+    PB -.->|"multi-hop entity-time<br/>questions failing"| PC
+```
+
 | Stage | What | Trigger to start |
 |-------|------|------------------|
 | **A. Reconciling consolidation** | Mem0-style search-before-write (ADD/UPDATE/NOOP) inside the consolidation job; bi-temporal-lite `memory_facts` table with supersede-not-delete | Consolidation job (memory-system-v2 item 4) lands and dedupe pressure is visible in memory files |

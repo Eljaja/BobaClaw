@@ -32,7 +32,62 @@ Adopt a **four-tier memory model** with an explicit lifecycle (capture → conso
 
 Design rule: **injection is a cache, not the store.** Everything injected must also be reachable by a read/search tool, so exceeding an injection budget degrades to "one tool call away" instead of "gone".
 
+```mermaid
+flowchart TB
+    subgraph CTX["Model context (system prompt + history)"]
+        direction TB
+        T3["T3 Behavioural<br/>SOUL.md / BOBACLAW.md / USER.md<br/>(always injected; writes gated by F13)"]
+        T2hot["T2 Curated core<br/>MEMORY.md + budgeted memory/* injection<br/>(injection is a cache, not the store)"]
+        T0["T0 Working<br/>history since last compaction<br/>+ summary row with Durable facts section"]
+    end
+
+    subgraph STORE["Stores (all local, ~/.bobaclaw)"]
+        direction TB
+        MD["Workspace markdown<br/>MEMORY.md, memory/topic.md,<br/>memory/YYYY-MM-DD.md, memory/archive/"]
+        DB["state.db (SQLite)<br/>messages + messages_fts (FTS5)<br/>memory_facts (stage A: valid_from / invalid_at)<br/>vec0 (stage B: sqlite-vec)"]
+        RL["Run Ledger<br/>runs/&lt;id&gt;/ — full stdout/stderr"]
+    end
+
+    subgraph TOOLS["Recall tools"]
+        direction TB
+        MS["memory_search<br/>FTS5 + (stage B) vectors, RRF fusion,<br/>provenance: session/date/file"]
+        MR["memory_read<br/>files beyond injection caps"]
+        RV["run_view<br/>full exec output by run_id"]
+    end
+
+    T2hot -."overflow beyond injection budget"....-> MD
+    MD --> MS & MR
+    DB --> MS
+    RL --> RV
+    MS & MR & RV -->|"one tool call"| T0
+```
+
 ### Lifecycle
+
+```mermaid
+flowchart LR
+    subgraph CAPTURE["Capture (append-only, hot path)"]
+        A1["memory_manage(append)<br/>facts → MEMORY.md / topic<br/>ephemeral → daily note"]
+        A2["Background review (every 10th msg)<br/>writes surfaced to operator"]
+        A3["Compaction: Durable facts section<br/>offered to memory"]
+    end
+
+    subgraph CONSOLIDATE["Consolidate (background memory agent)"]
+        C1["Search-before-write:<br/>find similar facts →<br/>ADD / UPDATE / NOOP"]
+        C2["memory_facts:<br/>contradiction invalidates<br/>old fact, never deletes"]
+        C3["Daily notes older than N days<br/>→ merged into topic files / MEMORY.md"]
+    end
+
+    subgraph FORGET["Forget = demotion"]
+        F1["stale → memory/archive/<br/>(out of injection, still searchable)"]
+        F2["hard delete —<br/>operator only (F13 rollback)"]
+    end
+
+    GATE{{"F13 gate:<br/>hash-chained versions, diffs,<br/>taint block for T3,<br/>operator notification"}}
+
+    CAPTURE --> GATE --> CONSOLIDATE
+    CONSOLIDATE --> GATE2{{"F13 gate"}} --> FORGET
+```
 
 **Capture.**
 
