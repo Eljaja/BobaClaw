@@ -63,7 +63,7 @@ Design rule: **injection is a cache, not the store.** Everything injected must a
 
 ### Explicitly rejected for v1
 
-- **Vector/embedding store** — premature until FTS recall is actually used; revisit (v2) only if FTS demonstrably misses recall cases. Keeps the runtime dependency-free and local-first.
+- **Vector/embedding store** — premature until FTS recall is actually used; revisit (v2) only if FTS demonstrably misses recall cases. Keeps the runtime dependency-free and local-first. The post-FTS path (hybrid sqlite-vec search, reconciling consolidation, bi-temporal facts) is surveyed in [docs/memory-beyond-fts.md](../memory-beyond-fts.md).
 - **Honcho-style user modeling service** — `USER.md` + curated memory covers the need at this scale.
 - **Automatic deletion / TTL** — silent forgetting is the failure mode we are fixing; archive instead.
 - **Per-message embeddings of tool output** — Run Ledger + `run_view` already give exact recall.
