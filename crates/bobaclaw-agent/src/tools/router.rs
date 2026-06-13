@@ -299,12 +299,15 @@ impl ToolHandler for FileHandler {
         ctx: &mut ToolCallContext<'_>,
         call: &ToolCall,
     ) -> anyhow::Result<ToolCallResult> {
-        let body = handle_file_tool(ctx.paths, &ctx.req.agent_group, call)?;
+        let (body, exit_code) = match handle_file_tool(ctx.paths, &ctx.req.agent_group, call) {
+            Ok(body) => (body, 0),
+            Err(e) => (format!("file tool error: {e:#}"), 1),
+        };
         let is_mutating = matches!(call.function.name.as_str(), "file_write" | "file_edit");
-        if is_mutating {
+        if is_mutating && exit_code == 0 {
             *ctx.outcome.executed = true;
         }
-        Ok(ToolCallResult { body, exit_code: 0 })
+        Ok(ToolCallResult { body, exit_code })
     }
 }
 
@@ -319,9 +322,15 @@ impl ToolHandler for WebFetchHandler {
         ctx: &mut ToolCallContext<'_>,
         call: &ToolCall,
     ) -> anyhow::Result<ToolCallResult> {
-        let body = handle_web_fetch_tool(&ctx.config.tools.web_fetch, call).await?;
-        *ctx.outcome.executed = true;
-        Ok(ToolCallResult { body, exit_code: 0 })
+        let (body, exit_code) = match handle_web_fetch_tool(&ctx.config.tools.web_fetch, call).await
+        {
+            Ok(body) => (body, 0),
+            Err(e) => (format!("web_fetch error: {e:#}"), 1),
+        };
+        if exit_code == 0 {
+            *ctx.outcome.executed = true;
+        }
+        Ok(ToolCallResult { body, exit_code })
     }
 }
 

@@ -6,8 +6,16 @@ pub fn validate_relative_path(path: &str) -> anyhow::Result<String> {
     if trimmed.is_empty() {
         anyhow::bail!("path must not be empty");
     }
+    let lower = trimmed.to_ascii_lowercase();
+    if lower.starts_with("http://") || lower.starts_with("https://") {
+        anyhow::bail!(
+            "looks like a URL — use web_fetch for web pages, or exec (e.g. yt-dlp) for video; file_read is workspace files only"
+        );
+    }
     if trimmed.starts_with('/') {
-        anyhow::bail!("path must be relative to the workspace");
+        anyhow::bail!(
+            "path must be workspace-relative (not an absolute or URL path); for http(s) links use web_fetch"
+        );
     }
 
     let rel = Path::new(&trimmed);
@@ -60,6 +68,12 @@ mod tests {
     fn rejects_traversal() {
         assert!(validate_relative_path("../etc/passwd").is_err());
         assert!(validate_relative_path("/etc/passwd").is_err());
+    }
+
+    #[test]
+    fn rejects_urls() {
+        let err = validate_relative_path("https://www.youtube.com/watch?v=abc").unwrap_err();
+        assert!(err.to_string().contains("web_fetch"));
     }
 
     #[test]

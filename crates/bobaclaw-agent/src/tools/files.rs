@@ -17,7 +17,8 @@ pub fn file_tool_specs() -> Vec<ToolSpec> {
             kind: "function".into(),
             function: FunctionSpec {
                 name: FILE_READ.into(),
-                description: "Read a file inside the agent workspace. Prefer over `exec cat`. \
+                description: "Read a file inside the agent workspace (workspace-relative path only). \
+                    Prefer over `exec cat`. For http(s) URLs use web_fetch; for video use exec (e.g. yt-dlp). \
                     Supports optional line offset and limit."
                     .into(),
                 parameters: json!({
