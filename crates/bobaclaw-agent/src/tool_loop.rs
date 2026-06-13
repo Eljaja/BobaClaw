@@ -12,6 +12,7 @@ use tokio_util::sync::CancellationToken;
 use crate::cancel::check_cancel;
 use crate::compaction::maybe_ensure_context_budget;
 use crate::progress::{emit, AgentEvent, AgentProgress};
+use crate::sources::{append_sources_if_missing, collect_turn_sources, TurnSource};
 use crate::subagent::SubagentManager;
 use crate::tools::{
     dispatch_tool_call, ToolCallContext, ToolCallOutcome, MEMORY_MANAGE, SKILL_MANAGE,
@@ -54,6 +55,7 @@ struct ToolLoopState {
     last_run_id: Option<String>,
     tool_persist: Vec<ToolPersistEntry>,
     action_retries: usize,
+    sources: Vec<TurnSource>,
 }
 
 impl ToolLoopState {
@@ -67,6 +69,7 @@ impl ToolLoopState {
             last_run_id: None,
             tool_persist: Vec::new(),
             action_retries: 0,
+            sources: Vec::new(),
         }
     }
 
@@ -214,6 +217,9 @@ pub async fn run_tool_loop(
                         Err(e) if e.is::<TurnInterrupted>() => return Ok(state.interrupted()),
                         Err(e) => return Err(e),
                     };
+                    state
+                        .sources
+                        .extend(collect_turn_sources(&call, &body, entry.exit_code));
                     state.tool_persist.push(entry);
                     messages.push(ConversationMessage::tool_result(call.id.clone(), body));
                 }
@@ -318,6 +324,10 @@ Ask to continue or narrow the task."
         state.final_text.push_str(&format!(
             "\n\n(Reached the {max_iterations}-step tool limit; partial progress may be in tool output above.)"
         ));
+    }
+
+    if mode == TurnMode::Parent {
+        state.final_text = append_sources_if_missing(&state.final_text, &state.sources);
     }
 
     Ok(state.complete(hit_iteration_limit))

@@ -228,7 +228,7 @@ impl SubagentManager {
             ConversationMessage::user(user_content),
         ];
 
-        let tools = build_child_tool_specs(mcp, preset_cfg);
+        let tools = build_child_tool_specs(mcp, preset_cfg, self.config.tools.web_fetch.enabled);
         let api_key = self.config.resolve_api_key()?;
         let client = ToolChatClient::from_provider(&self.config.provider, api_key)?;
 

@@ -190,6 +190,70 @@ impl<'a> SessionStore<'a> {
         .await?;
         Ok(count as usize)
     }
+
+    /// Search message history for an agent group via FTS5.
+    pub async fn search_messages(
+        &self,
+        agent_group: &str,
+        query: &str,
+        limit: i64,
+    ) -> anyhow::Result<Vec<MessageSearchHit>> {
+        let trimmed = query.trim();
+        if trimmed.is_empty() {
+            return Ok(Vec::new());
+        }
+        if trimmed.len() > 200 {
+            anyhow::bail!("query too long (max 200 chars)");
+        }
+
+        let fts_query = build_fts_query(trimmed);
+        let limit = limit.clamp(1, 50);
+
+        let rows = sqlx::query_as::<_, (String, String, f64, String)>(
+            "SELECT m.session_id, m.role, m.timestamp,
+                    snippet(messages_fts, 0, '[', ']', '…', 32) AS snippet
+             FROM messages_fts
+             INNER JOIN messages m ON m.id = messages_fts.rowid
+             INNER JOIN sessions s ON s.id = m.session_id
+             WHERE messages_fts MATCH ?1 AND s.agent_group = ?2
+             ORDER BY rank
+             LIMIT ?3",
+        )
+        .bind(&fts_query)
+        .bind(agent_group)
+        .bind(limit)
+        .fetch_all(self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|(session_id, role, timestamp, snippet)| MessageSearchHit {
+                session_id,
+                role,
+                timestamp,
+                snippet,
+            })
+            .collect())
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct MessageSearchHit {
+    pub session_id: String,
+    pub role: String,
+    pub timestamp: f64,
+    pub snippet: String,
+}
+
+fn build_fts_query(raw: &str) -> String {
+    raw.split_whitespace()
+        .filter(|t| !t.is_empty())
+        .map(|term| {
+            let escaped = term.replace('"', "\"\"");
+            format!("\"{escaped}\"")
+        })
+        .collect::<Vec<_>>()
+        .join(" OR ")
 }
 
 fn ingress_source(kind: IngressKind) -> String {
@@ -236,6 +300,10 @@ mod tests {
         assert_eq!(recent[0].0, "assistant");
 
         assert_eq!(store.count_user_messages(&sid).await.unwrap(), 1);
+
+        let hits = store.search_messages("test", "hello", 5).await.unwrap();
+        assert_eq!(hits.len(), 1);
+        assert!(hits[0].snippet.contains("hello"));
     }
 
     #[tokio::test]

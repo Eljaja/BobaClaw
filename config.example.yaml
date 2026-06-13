@@ -76,6 +76,14 @@ cron:
   #     channel: telegram
   #     peer: "123456789"
 
+# Native agent tools (host-side where noted).
+tools:
+  web_fetch:
+    enabled: false       # SSRF surface — enable only when needed
+    max_bytes: 524288
+    timeout_secs: 30
+    max_redirects: 5
+
 # External MCP servers. Tools appear as mcp_<server>_<tool> in the agent.
 # Transport: stdio (command + args) or HTTP (url — long-lived server).
 mcp_servers:

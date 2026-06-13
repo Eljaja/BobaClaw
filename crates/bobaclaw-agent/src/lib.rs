@@ -7,6 +7,7 @@ mod loop_;
 mod progress;
 mod prompt;
 mod review;
+mod sources;
 mod spawn_completer;
 mod subagent;
 mod tool_loop;

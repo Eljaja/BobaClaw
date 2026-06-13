@@ -120,7 +120,7 @@ pub async fn run_agent_turn(
     let api_key = config.resolve_api_key()?;
     let client = bobaclaw_provider::ToolChatClient::from_provider(&config.provider, api_key)?;
     let subagents_enabled = config.subagents.enabled && subagent.is_some();
-    let tools = build_parent_tool_specs(mcp, subagents_enabled);
+    let tools = build_parent_tool_specs(mcp, subagents_enabled, config.tools.web_fetch.enabled);
 
     let requires_action = parent_turn_offered_tools(TurnMode::Parent, &tools);
     let turn_ctx = TurnContext::parent(session_id);

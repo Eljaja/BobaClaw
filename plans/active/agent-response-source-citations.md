@@ -71,9 +71,7 @@ Revert the branch; citation is prompt/workspace-only with no schema or API chang
 
 ## Completion notes
 
-Fill this after implementation:
-
-- changed files:
-- validation run:
-- known gaps:
-- follow-up work: optional turn-level Sources footer assembled from tool-call URL metadata if prompt-only compliance is insufficient
+- changed files: `crates/bobaclaw-agent/src/sources.rs`, `tool_loop.rs`, `prompt.rs`, `workspace-examples/home/TOOLS.md`
+- validation run: `cargo test -p bobaclaw-agent` (71 passed), `make ci` (pending)
+- known gaps: Sources footer only for parent turns; MCP tools without `url` arg not tracked
+- follow-up work: extend URL extraction for additional MCP tool shapes if needed

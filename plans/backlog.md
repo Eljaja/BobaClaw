@@ -62,6 +62,18 @@ Point solutions fail in isolation. Treat these as one coherent lifecycle-aware p
 
 ---
 
+## Channel depth (Telegram groups)
+
+Not part of the F1–F16 ordered backlog, but tracked for parity with Hermes/OpenClaw group UX:
+
+| Plan | Priority | Notes |
+|------|----------|-------|
+| [telegram-group-behavior-hermes-openclaw](active/telegram-group-behavior-hermes-openclaw.md) | P1 → P2 | Observe mode, `group_allow_from`, `mention_patterns`, per-group overrides, `/activation`; Phase 2 needs F5 taint |
+
+Current gap: `allowed_groups: []` denies all groups; no observe transcript, no sender gate in groups, no wake words.
+
+---
+
 ## Explicit non-goals
 
 Do not implement unless re-prioritized:

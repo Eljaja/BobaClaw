@@ -75,9 +75,7 @@ Revert the branch; tools are additive and config-gated.
 
 ## Completion notes
 
-Fill this after implementation:
-
-- changed files:
-- validation run:
-- known gaps:
-- follow-up work:
+- changed files: `crates/bobaclaw-agent/src/tools/files.rs`, `web.rs`, `workspace_path.rs`, `tools_config.rs`, `specs.rs`, `router.rs`, `config.example.yaml`, `harness/tools/files.md`, `harness/tools/web_fetch.md`, `docs/as-built.md`
+- validation run: `cargo test -p bobaclaw-agent` (71 passed)
+- known gaps: `web_fetch` off by default; no run-ledger rows for file ops yet
+- follow-up work: optional eval smoke for `file_edit`

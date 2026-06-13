@@ -165,6 +165,24 @@ impl<'a> RunLedger<'a> {
         )
     }
 
+    /// Returns `Some(agent_group)` when the run exists and belongs to the given group.
+    pub async fn verify_run_agent_group(
+        &self,
+        run_id: &str,
+        agent_group: &str,
+    ) -> anyhow::Result<Option<String>> {
+        let row: Option<String> = sqlx::query_scalar(
+            "SELECT s.agent_group FROM runs r
+             INNER JOIN sessions s ON s.id = r.session_id
+             WHERE r.id = ?1",
+        )
+        .bind(run_id)
+        .fetch_optional(self.pool)
+        .await?;
+
+        Ok(row.filter(|g| g == agent_group))
+    }
+
     async fn update_status(
         &self,
         run_id: &str,

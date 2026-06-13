@@ -5,18 +5,25 @@ use bobaclaw_mcp::McpHub;
 use bobaclaw_provider::ToolSpec;
 
 use super::{
-    child_skill_tool_specs, exec_tool_spec, memory_tool_spec, schedule_tool_specs,
-    skill_tool_specs, spawn_status_tool_spec, spawn_tool_spec, subagent_tool_spec,
+    child_skill_tool_specs, exec_tool_spec, file_tool_specs, memory_tool_specs, run_view_tool_spec,
+    schedule_tool_specs, skill_tool_specs, spawn_status_tool_spec, spawn_tool_spec,
+    subagent_tool_spec, web_fetch_tool_spec,
 };
 
 pub fn build_parent_tool_specs(
     mcp: Option<&Arc<McpHub>>,
     subagents_enabled: bool,
+    web_fetch_enabled: bool,
 ) -> Vec<ToolSpec> {
     let mut t = vec![exec_tool_spec()];
+    t.extend(file_tool_specs());
+    t.push(run_view_tool_spec());
     t.extend(schedule_tool_specs());
     t.extend(skill_tool_specs());
-    t.push(memory_tool_spec());
+    t.extend(memory_tool_specs());
+    if web_fetch_enabled {
+        t.push(web_fetch_tool_spec());
+    }
     if subagents_enabled {
         t.push(subagent_tool_spec());
         t.push(spawn_tool_spec());
@@ -31,9 +38,15 @@ pub fn build_parent_tool_specs(
 pub fn build_child_tool_specs(
     mcp: Option<&Arc<McpHub>>,
     preset: Option<&SubagentPreset>,
+    web_fetch_enabled: bool,
 ) -> Vec<ToolSpec> {
     let mut t = vec![exec_tool_spec()];
+    t.extend(file_tool_specs());
+    t.push(run_view_tool_spec());
     t.extend(child_skill_tool_specs());
+    if web_fetch_enabled {
+        t.push(web_fetch_tool_spec());
+    }
     if let Some(hub) = mcp {
         t.extend(hub.tool_specs());
     }
@@ -70,31 +83,43 @@ mod tests {
 
     #[test]
     fn child_specs_exclude_subagent_memory_schedule() {
-        let specs = build_child_tool_specs(None, None);
+        let specs = build_child_tool_specs(None, None, false);
         let names: Vec<_> = specs.iter().map(|s| s.function.name.as_str()).collect();
         assert!(names.contains(&"exec"));
+        assert!(names.contains(&"file_read"));
+        assert!(names.contains(&"run_view"));
         assert!(names.contains(&"skill_view"));
         assert!(!names
             .iter()
             .any(|n| { *n == "subagent" || *n == "spawn" || *n == "spawn_status" }));
         assert!(!names.iter().any(|n| n.starts_with("schedule")));
         assert!(!names.iter().any(|n| *n == "memory_manage"));
+        assert!(!names.iter().any(|n| *n == "memory_search"));
     }
 
     #[test]
     fn parent_specs_include_subagent_when_enabled() {
-        let specs = build_parent_tool_specs(None, true);
+        let specs = build_parent_tool_specs(None, true, false);
         assert!(specs.iter().any(|s| s.function.name == "subagent"));
+        assert!(specs.iter().any(|s| s.function.name == "memory_search"));
+    }
+
+    #[test]
+    fn web_fetch_gated_by_config() {
+        let off = build_parent_tool_specs(None, false, false);
+        assert!(!off.iter().any(|s| s.function.name == "web_fetch"));
+        let on = build_parent_tool_specs(None, false, true);
+        assert!(on.iter().any(|s| s.function.name == "web_fetch"));
     }
 
     #[test]
     fn allowlist_filters_tools() {
-        let specs = build_child_tool_specs(None, None);
+        let specs = build_child_tool_specs(None, None, false);
         let preset = SubagentPreset {
             tools_allowlist: vec!["exec".into()],
             ..Default::default()
         };
-        let filtered = build_child_tool_specs(None, Some(&preset));
+        let filtered = build_child_tool_specs(None, Some(&preset), false);
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].function.name, "exec");
         assert!(specs.len() > 1);

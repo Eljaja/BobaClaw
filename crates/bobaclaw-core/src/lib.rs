@@ -10,6 +10,7 @@ pub mod request;
 pub mod run;
 pub mod scheduler;
 pub mod subagent_config;
+pub mod tools_config;
 pub mod truncate;
 pub mod turn;
 
@@ -38,5 +39,6 @@ pub use subagent_config::{
     ClaudeCodeBackendConfig, CodexBackendConfig, CursorBackendConfig, SubagentBackendsConfig,
     SubagentConfig, SubagentPreset,
 };
+pub use tools_config::{ToolsConfig, WebFetchConfig};
 pub use truncate::head_tail_with_hint;
 pub use turn::TurnInterrupted;

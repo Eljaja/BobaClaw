@@ -186,6 +186,7 @@ pub async fn handle_exec_tool(
                 &full_command,
                 &workspace,
                 &run_dir,
+                &run_id,
                 exec.exit_code,
                 &exec.summary,
             );
@@ -334,17 +335,18 @@ fn format_tool_result(
     command: &str,
     workspace: &std::path::Path,
     run_dir: &std::path::Path,
+    run_id: &str,
     exit_code: i32,
     summary: &str,
 ) -> String {
-    let artifact = format!("full output in {}", run_dir.join("result.json").display());
+    let artifact = format!("full output: run_view run_id={run_id}");
     let output = if summary.chars().count() > MAX_TOOL_BODY_CHARS {
         head_tail_with_hint(summary, MAX_TOOL_BODY_CHARS, &artifact)
     } else {
         summary.to_string()
     };
     format!(
-        "command: {command}\nworkspace: {}\nrun_dir: {}\nexit_code: {exit_code}\n\n{output}",
+        "command: {command}\nworkspace: {}\nrun_id: {run_id}\nrun_dir: {}\nexit_code: {exit_code}\n\n{output}",
         workspace.display(),
         run_dir.display()
     )
@@ -389,8 +391,9 @@ mod tests {
     #[test]
     fn format_tool_result_includes_exit_code() {
         let dir = tempfile::tempdir().unwrap();
-        let out = format_tool_result("echo hi", dir.path(), dir.path(), 0, "hi\n");
+        let out = format_tool_result("echo hi", dir.path(), dir.path(), "run_test", 0, "hi\n");
         assert!(out.contains("exit_code: 0"));
+        assert!(out.contains("run_id: run_test"));
         assert!(out.contains("run_dir:"));
     }
 }

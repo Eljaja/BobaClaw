@@ -13,9 +13,12 @@ use crate::subagent::SubagentManager;
 use crate::turn_context::TurnContext;
 
 use super::{
-    handle_exec_tool, handle_mcp_tool, handle_memory_tool, handle_schedule_tool, handle_skill_tool,
-    handle_spawn_status_tool, handle_spawn_tool, handle_subagent_tool, is_mcp_tool, is_memory_tool,
-    is_skill_tool, is_spawn_status_tool, is_spawn_tool, is_subagent_tool,
+    handle_exec_tool, handle_file_tool, handle_mcp_tool, handle_memory_search_tool,
+    handle_memory_tool, handle_run_view_tool, handle_schedule_tool, handle_skill_tool,
+    handle_spawn_status_tool, handle_spawn_tool, handle_subagent_tool, handle_web_fetch_tool,
+    is_file_tool, is_mcp_tool, is_memory_tool, is_run_view_tool, is_skill_tool,
+    is_spawn_status_tool, is_spawn_tool, is_subagent_tool, is_web_fetch_tool, MEMORY_MANAGE,
+    MEMORY_SEARCH,
 };
 
 pub struct ToolCallResult {
@@ -62,6 +65,9 @@ struct McpHandler;
 struct ExecHandler;
 struct SkillHandler;
 struct MemoryHandler;
+struct FileHandler;
+struct WebFetchHandler;
+struct RunViewHandler;
 
 #[async_trait]
 impl ToolHandler for SubagentHandler {
@@ -270,8 +276,67 @@ impl ToolHandler for MemoryHandler {
         ctx: &mut ToolCallContext<'_>,
         call: &ToolCall,
     ) -> anyhow::Result<ToolCallResult> {
-        let body = handle_memory_tool(ctx.paths, &ctx.req.agent_group, call)?;
+        let body = if call.function.name == MEMORY_SEARCH {
+            handle_memory_search_tool(ctx.paths, ctx.pool, &ctx.req.agent_group, call).await?
+        } else {
+            handle_memory_tool(ctx.paths, &ctx.req.agent_group, call)?
+        };
+        if call.function.name == MEMORY_MANAGE {
+            *ctx.outcome.executed = true;
+        }
+        Ok(ToolCallResult { body, exit_code: 0 })
+    }
+}
+
+#[async_trait]
+impl ToolHandler for FileHandler {
+    fn matches(&self, name: &str, _ctx: &ToolCallContext<'_>) -> bool {
+        is_file_tool(name)
+    }
+
+    async fn handle(
+        &self,
+        ctx: &mut ToolCallContext<'_>,
+        call: &ToolCall,
+    ) -> anyhow::Result<ToolCallResult> {
+        let body = handle_file_tool(ctx.paths, &ctx.req.agent_group, call)?;
+        let is_mutating = matches!(call.function.name.as_str(), "file_write" | "file_edit");
+        if is_mutating {
+            *ctx.outcome.executed = true;
+        }
+        Ok(ToolCallResult { body, exit_code: 0 })
+    }
+}
+
+#[async_trait]
+impl ToolHandler for WebFetchHandler {
+    fn matches(&self, name: &str, _ctx: &ToolCallContext<'_>) -> bool {
+        is_web_fetch_tool(name)
+    }
+
+    async fn handle(
+        &self,
+        ctx: &mut ToolCallContext<'_>,
+        call: &ToolCall,
+    ) -> anyhow::Result<ToolCallResult> {
+        let body = handle_web_fetch_tool(&ctx.config.tools.web_fetch, call).await?;
         *ctx.outcome.executed = true;
+        Ok(ToolCallResult { body, exit_code: 0 })
+    }
+}
+
+#[async_trait]
+impl ToolHandler for RunViewHandler {
+    fn matches(&self, name: &str, _ctx: &ToolCallContext<'_>) -> bool {
+        is_run_view_tool(name)
+    }
+
+    async fn handle(
+        &self,
+        ctx: &mut ToolCallContext<'_>,
+        call: &ToolCall,
+    ) -> anyhow::Result<ToolCallResult> {
+        let body = handle_run_view_tool(ctx.paths, ctx.pool, &ctx.req.agent_group, call).await?;
         Ok(ToolCallResult { body, exit_code: 0 })
     }
 }
@@ -285,7 +350,10 @@ fn handlers() -> &'static Vec<Box<dyn ToolHandler>> {
             Box::new(SpawnStatusHandler),
             Box::new(ScheduleHandler),
             Box::new(McpHandler),
+            Box::new(WebFetchHandler),
             Box::new(ExecHandler),
+            Box::new(FileHandler),
+            Box::new(RunViewHandler),
             Box::new(SkillHandler),
             Box::new(MemoryHandler),
         ]

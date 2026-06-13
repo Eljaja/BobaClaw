@@ -6,6 +6,7 @@ use crate::context_config::ContextConfig;
 use crate::mcp::McpServers;
 use crate::scheduler::{CronConfig, SchedulerConfig};
 use crate::subagent_config::SubagentConfig;
+use crate::tools_config::ToolsConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BobaConfig {
@@ -31,6 +32,8 @@ pub struct BobaConfig {
     pub mcp_servers: McpServers,
     #[serde(default)]
     pub subagents: SubagentConfig,
+    #[serde(default)]
+    pub tools: ToolsConfig,
     #[serde(default = "default_agent_group")]
     pub default_agent_group: String,
 }
@@ -53,6 +56,7 @@ impl Default for BobaConfig {
             cron: CronConfig::default(),
             mcp_servers: McpServers::default(),
             subagents: SubagentConfig::default(),
+            tools: ToolsConfig::default(),
             default_agent_group: default_agent_group(),
         }
     }

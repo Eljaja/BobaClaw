@@ -13,5 +13,5 @@ pub use ledger::{RunLedger, RunRecord};
 pub use pairing::{PairingRow, PairingStore};
 pub use routes::RouteStore;
 pub use scheduled::{ScheduledTask, ScheduledTaskStore};
-pub use session::SessionStore;
+pub use session::{MessageSearchHit, SessionStore};
 pub use spawn_jobs::{SpawnJobRecord, SpawnJobStore};

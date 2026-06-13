@@ -1,18 +1,36 @@
 use std::path::{Component, Path};
 
-use bobaclaw_core::BobaPaths;
+use bobaclaw_core::{head_tail_with_hint, BobaPaths};
 use bobaclaw_provider::{FunctionSpec, ToolCall, ToolSpec};
+use bobaclaw_state::SessionStore;
 use serde::Deserialize;
 use serde_json::json;
+use sqlx::SqlitePool;
 
 pub const MEMORY_MANAGE: &str = "memory_manage";
+pub const MEMORY_SEARCH: &str = "memory_search";
+pub const MEMORY_READ: &str = "memory_read";
 
 /// Max bytes appended in one call.
 pub const MEMORY_APPEND_MAX_BYTES: usize = 4_096;
 /// Max total file size after append.
 pub const MEMORY_FILE_MAX_BYTES: usize = 65_536;
+const MAX_READ_CHARS: usize = 24_000;
+const DEFAULT_SEARCH_LIMIT: i64 = 10;
+
+pub fn memory_tool_specs() -> Vec<ToolSpec> {
+    vec![
+        memory_manage_spec(),
+        memory_search_spec(),
+        memory_read_spec(),
+    ]
+}
 
 pub fn memory_tool_spec() -> ToolSpec {
+    memory_manage_spec()
+}
+
+fn memory_manage_spec() -> ToolSpec {
     ToolSpec {
         kind: "function".into(),
         function: FunctionSpec {
@@ -43,8 +61,49 @@ pub fn memory_tool_spec() -> ToolSpec {
     }
 }
 
+fn memory_search_spec() -> ToolSpec {
+    ToolSpec {
+        kind: "function".into(),
+        function: FunctionSpec {
+            name: MEMORY_SEARCH.into(),
+            description: "Search past session messages (FTS) and workspace memory files for a query. \
+                When you use results in the answer, cite the memory file path or session in Sources."
+                .into(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string" },
+                    "limit": { "type": "integer", "description": "Max hits per source (default 10, max 50)" }
+                },
+                "required": ["query"]
+            }),
+        },
+    }
+}
+
+fn memory_read_spec() -> ToolSpec {
+    ToolSpec {
+        kind: "function".into(),
+        function: FunctionSpec {
+            name: MEMORY_READ.into(),
+            description: "Read MEMORY.md or memory/<file> beyond prompt injection caps. \
+                Cite the file path in Sources when using retrieved facts."
+                .into(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string" },
+                    "offset": { "type": "integer", "description": "1-based start line (optional)" },
+                    "limit": { "type": "integer", "description": "Max lines (optional)" }
+                },
+                "required": ["path"]
+            }),
+        },
+    }
+}
+
 pub fn is_memory_tool(name: &str) -> bool {
-    name == MEMORY_MANAGE
+    matches!(name, MEMORY_MANAGE | MEMORY_SEARCH | MEMORY_READ)
 }
 
 #[derive(Debug, Deserialize)]
@@ -55,6 +114,59 @@ struct MemoryManageArgs {
 }
 
 pub fn handle_memory_tool(
+    paths: &BobaPaths,
+    agent_group: &str,
+    call: &ToolCall,
+) -> anyhow::Result<String> {
+    match call.function.name.as_str() {
+        MEMORY_MANAGE => handle_memory_manage(paths, agent_group, call),
+        MEMORY_READ => handle_memory_read(paths, agent_group, call),
+        other => anyhow::bail!("sync memory tool not supported: {other}"),
+    }
+}
+
+pub async fn handle_memory_search_tool(
+    paths: &BobaPaths,
+    pool: &SqlitePool,
+    agent_group: &str,
+    call: &ToolCall,
+) -> anyhow::Result<String> {
+    let args: MemorySearchArgs = serde_json::from_str(&call.function.arguments)
+        .map_err(|e| anyhow::anyhow!("invalid memory_search arguments: {e}"))?;
+
+    let limit = args.limit.unwrap_or(DEFAULT_SEARCH_LIMIT);
+    let store = SessionStore::new(pool);
+    let hits = store
+        .search_messages(agent_group, &args.query, limit)
+        .await?;
+
+    let workspace = paths.group_workspace(agent_group);
+    let file_hits = search_memory_files(&workspace, &args.query, limit as usize);
+
+    let mut lines = Vec::new();
+    if !hits.is_empty() {
+        lines.push("## Session messages".into());
+        for h in hits {
+            lines.push(format!(
+                "- session={} role={} ts={:.0}: {}",
+                h.session_id, h.role, h.timestamp, h.snippet
+            ));
+        }
+    }
+    if !file_hits.is_empty() {
+        lines.push("## Memory files".into());
+        for h in file_hits {
+            lines.push(format!("- {}: {}", h.path, h.snippet));
+        }
+    }
+    if lines.is_empty() {
+        Ok(format!("No matches for '{}'.", args.query.trim()))
+    } else {
+        Ok(lines.join("\n"))
+    }
+}
+
+fn handle_memory_manage(
     paths: &BobaPaths,
     agent_group: &str,
     call: &ToolCall,
@@ -109,6 +221,127 @@ pub fn handle_memory_tool(
     file.write_all(chunk.as_bytes())?;
 
     Ok(format!("Appended to '{rel_display}'."))
+}
+
+#[derive(Debug, Deserialize)]
+struct MemorySearchArgs {
+    query: String,
+    #[serde(default)]
+    limit: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MemoryReadArgs {
+    path: String,
+    #[serde(default)]
+    offset: Option<u32>,
+    #[serde(default)]
+    limit: Option<u32>,
+}
+
+struct MemoryFileHit {
+    path: String,
+    snippet: String,
+}
+
+fn search_memory_files(workspace: &Path, query: &str, limit: usize) -> Vec<MemoryFileHit> {
+    let q = query.to_lowercase();
+    if q.is_empty() {
+        return Vec::new();
+    }
+    let mut hits = Vec::new();
+    let candidates = memory_file_candidates(workspace);
+    for path in candidates {
+        let Ok(content) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        if !content.to_lowercase().contains(&q) {
+            continue;
+        }
+        let rel = path
+            .strip_prefix(workspace)
+            .map(|p| p.to_string_lossy().replace('\\', "/"))
+            .unwrap_or_else(|_| path.display().to_string());
+        let snippet = extract_snippet(&content, &q, 120);
+        hits.push(MemoryFileHit { path: rel, snippet });
+        if hits.len() >= limit {
+            break;
+        }
+    }
+    hits
+}
+
+fn memory_file_candidates(workspace: &Path) -> Vec<std::path::PathBuf> {
+    let mut out = Vec::new();
+    let root = workspace.join("MEMORY.md");
+    if root.is_file() {
+        out.push(root);
+    }
+    let mem_dir = workspace.join("memory");
+    if mem_dir.is_dir() {
+        if let Ok(read) = std::fs::read_dir(&mem_dir) {
+            for entry in read.flatten() {
+                let p = entry.path();
+                if p.is_file() {
+                    out.push(p);
+                }
+            }
+        }
+    }
+    out
+}
+
+fn extract_snippet(content: &str, query: &str, max_chars: usize) -> String {
+    let lower = content.to_lowercase();
+    let Some(idx) = lower.find(query) else {
+        return content.chars().take(max_chars).collect();
+    };
+    let start = idx.saturating_sub(40);
+    let slice: String = content.chars().skip(start).take(max_chars).collect();
+    if start > 0 {
+        format!("…{slice}")
+    } else {
+        slice
+    }
+}
+
+fn handle_memory_read(
+    paths: &BobaPaths,
+    agent_group: &str,
+    call: &ToolCall,
+) -> anyhow::Result<String> {
+    let args: MemoryReadArgs = serde_json::from_str(&call.function.arguments)
+        .map_err(|e| anyhow::anyhow!("invalid memory_read arguments: {e}"))?;
+
+    let workspace = paths.group_workspace(agent_group);
+    let rel = validate_memory_path(&args.path)?;
+    let target = workspace.join(&rel);
+    if !target.is_file() {
+        anyhow::bail!("memory file not found: {rel}");
+    }
+
+    let content = std::fs::read_to_string(&target)?;
+    let output = match (args.offset, args.limit) {
+        (None, None) => content,
+        (offset, limit) => {
+            let start = offset.unwrap_or(1).max(1) as usize;
+            let lines: Vec<&str> = content.lines().collect();
+            let idx = start.saturating_sub(1);
+            if idx >= lines.len() {
+                String::new()
+            } else {
+                let end = limit.map(|l| idx + l as usize).unwrap_or(lines.len());
+                lines[idx..end.min(lines.len())].join("\n")
+            }
+        }
+    };
+
+    if output.chars().count() > MAX_READ_CHARS {
+        let hint = format!("truncated '{rel}' — use offset/limit");
+        Ok(head_tail_with_hint(&output, MAX_READ_CHARS, &hint))
+    } else {
+        Ok(output)
+    }
 }
 
 /// Resolve and validate a memory path relative to workspace group root.

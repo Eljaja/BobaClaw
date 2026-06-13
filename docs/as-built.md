@@ -294,12 +294,14 @@ Spawn completion: notification to Telegram/CLI; optional wake of parent turn.
 
 | Item | Where |
 |------|-------|
-| FTS search API / CLI | `messages_fts` — triggers work, no search endpoint |
+| FTS search API / CLI | `memory_search` tool; no `bobaclaw search` CLI yet |
 | Approval flow | `approvals` table, `host-danger` profile |
 | `bobaclaw onboard` wizard | spec in ARCHITECTURE only |
 | Second+ channel (Discord/Slack/…) | no crate |
-| Built-in `web_search` / `web_fetch` | none (MCP only, e.g. Obscura) |
-| Dedicated file tools (read/write/edit) | via `exec` only |
+| Built-in `web_search` | none |
+| Built-in `web_fetch` | optional (`tools.web_fetch.enabled`, default off); MCP still primary for JS pages |
+| Dedicated file tools (read/write/edit) | `file_read`, `file_write`, `file_edit` |
+| Run output recall | `run_view` tool |
 | Credential vault / proxy | keys in env/config; external subagent backends export keys into sandbox |
 | Web UI / control panel | none |
 | systemd unit / hot reload | none |

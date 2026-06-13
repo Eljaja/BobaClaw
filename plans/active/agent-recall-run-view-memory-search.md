@@ -76,9 +76,7 @@ Revert the branch; tools are additive, no schema migration required (FTS already
 
 ## Completion notes
 
-Fill this after implementation:
-
-- changed files:
-- validation run:
-- known gaps:
-- follow-up work:
+- changed files: `run_view.rs`, `memory.rs` (search/read), `session.rs` (FTS), `ledger.rs`, `exec.rs`, `prompt.rs`, `registry.rs`, `harness/tools/run_view.md`, `harness/tools/memory.md`, `docs/as-built.md`
+- validation run: `cargo test -p bobaclaw-agent -p bobaclaw-state` 
+- known gaps: no `bobaclaw search` CLI; memory_search file scan is substring not FTS
+- follow-up work: F6 CLI/gateway search API

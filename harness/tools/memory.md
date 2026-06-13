@@ -1,12 +1,18 @@
-# Tool: memory_manage
+# Tool: memory_manage / memory_search / memory_read
 
-Workspace long-term memory (facts, preferences, user context). Implementation: `crates/bobaclaw-agent/src/tools/memory.rs`.
+Workspace long-term memory and recall. Implementation: `crates/bobaclaw-agent/src/tools/memory.rs`.
 
 ## Purpose
 
-Append durable information to `MEMORY.md` or files under `memory/`. Not for repeatable multi-step tool workflows — use skills for those.
+- **memory_manage** — append durable information to `MEMORY.md` or `memory/`
+- **memory_search** — FTS search over past session messages + workspace memory files
+- **memory_read** — read memory files beyond prompt injection caps
+
+Not for repeatable multi-step tool workflows — use skills for those.
 
 ## Input
+
+### memory_manage
 
 ```json
 {
@@ -16,32 +22,44 @@ Append durable information to `MEMORY.md` or files under `memory/`. Not for repe
 }
 ```
 
-Required: `action`, `path`, `content`.
+### memory_search
 
-Allowed paths:
+```json
+{ "query": "search terms", "limit": 10 }
+```
+
+### memory_read
+
+```json
+{ "path": "MEMORY.md | memory/<file>", "offset": 1, "limit": 100 }
+```
+
+Allowed paths for manage/read:
 
 - `MEMORY.md` at workspace group root
-- `memory/<basename>.md` or `memory/<basename>.txt` (single segment only)
+- `memory/<basename>.md` or `.txt` (single segment only)
 
 ## Side effects
 
-- Appends text under `~/.bobaclaw/workspace/<group>/`.
-- Creates `memory/` directory when needed.
-- Per-append cap: 4 KB. Total file cap: 64 KB.
+- **memory_manage**: appends under `~/.bobaclaw/workspace/<group>/`
+- **memory_search** / **memory_read**: read-only
+
+## Answer contract
+
+When using **memory_search** or **memory_read** results in the user-facing answer, cite the memory file path in `## Sources`.
 
 ## Approval requirements
 
-- Low risk: workspace-scoped append only.
-- No delete or replace in v1.
+- Low risk: workspace-scoped; manage is append-only in v1.
 
 ## Failure modes
 
-- Invalid path (traversal, wrong extension) — fix `path` and retry.
-- Size limit exceeded — shorten content or split across files.
+- Invalid path (traversal, wrong extension) — fix `path`
+- Size limit exceeded on append — shorten content or split across files
 
 ## Telemetry
 
-File path appended; no Run Ledger capsule.
+File path appended (manage); no Run Ledger capsule.
 
 ## Tests
 

@@ -108,6 +108,7 @@ impl SkillRegistry {
         let lower = text.to_lowercase();
         self.skills.iter().find(|s| {
             lower.contains(&s.name.to_lowercase())
+                || (!s.description.is_empty() && lower.contains(&s.description.to_lowercase()))
                 || s.tags.iter().any(|t| lower.contains(&t.to_lowercase()))
         })
     }

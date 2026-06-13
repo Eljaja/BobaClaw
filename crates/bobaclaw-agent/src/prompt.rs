@@ -43,14 +43,16 @@ const MEMORY_HINT: &str = "# User memory (workspace files)\n\
 When the user asks what you remembered, what \"codeword\" / \"code word\" / «кодовое слово» they meant, \
 or refers to something they asked to save — answer from these files first, then session history. \
 For new facts, preferences, or user context: use `memory_manage(action=append)` or append to `MEMORY.md` / `memory/` — not chat-only. \
+Use `memory_search` / `memory_read` when injected memory is truncated or you need prior session context. \
 Do not store facts or preferences as skills; repeatable multi-step tool workflows belong in skills, not memory.";
 
 const EXEC_DISCIPLINE: &str = "# Execution discipline\n\
 - Use `exec` for arithmetic, hashes, current time/date, system state, and git state — \
 not guesswork.\n\
 - Exec cwd is the workspace root; optional `workdir` must be a **relative** subpath (e.g. `src`), not `/workspace`.\n\
+- Prefer `file_read` / `file_write` / `file_edit` over `exec` + cat/sed/heredoc for workspace files.
 - Inbound channel files appear as `[file:…]`, `[image:…]`, etc. — paths relative to workspace root. \
-Open them with `exec` (e.g. `cat path`).\n\
+Open them with `file_read` or `exec` (e.g. `cat path`).\n\
 - Injected memory files and prior `exec` output in this session are authoritative for stored user facts.\n\
 - If your last assistant message in session history ends with a `<!-- tool-results -->` block, \
 treat that block as authoritative command output (not user-facing prose).\n\
@@ -102,9 +104,14 @@ Tools named `mcp_<server>_<tool>` call external MCP servers configured in `confi
 They run on the host and may use network or credentials you configured. \
 Use MCP only through the tool API (JSON-RPC), not by piping shell commands into an MCP process. \
 Prefer MCP when a configured tool fits; use `exec` for workspace shell work. \
-For Obscura `browser_navigate`, BobaClaw defaults to `waitUntil: domcontentloaded` (not `load`) so heavy pages do not hang.\n\
-When you use browser MCP tools to read or search the web, end the user-facing answer with a **Sources** section: \
-one markdown link per URL you actually visited this turn. Do not invent URLs. Omit Sources if you did not browse.";
+For Obscura `browser_navigate`, BobaClaw defaults to `waitUntil: domcontentloaded` (not `load`) so heavy pages do not hang.";
+
+const SOURCES_HINT: &str = "# Sources in answers\n\
+When your answer uses facts from external or retrieved content this turn — browser MCP, `web_fetch`, \
+other URL-bearing MCP tools, `memory_search`, or `memory_read` — end the user-facing reply with \
+`## Sources`: one markdown link per URL or workspace-relative path you actually read. \
+Do not invent links. Omit Sources only when the answer comes solely from the current user message \
+or workspace bootstrap files already in context. BobaClaw may append missing Sources from tool metadata.";
 
 const LANGUAGE_HINT: &str = "# Language\n\
 System instructions are in English. Reply in the same language the user writes in unless they ask otherwise.";
@@ -301,6 +308,7 @@ fn assemble_system_prompt(
         TASK_COMPLETION.to_string(),
         EXEC_DISCIPLINE.to_string(),
         MEMORY_HINT.to_string(),
+        SOURCES_HINT.to_string(),
         SCHEDULING_HINT.to_string(),
         SKILLS_HINT.to_string(),
         SUBAGENT_HINT.to_string(),
@@ -308,9 +316,20 @@ fn assemble_system_prompt(
     ];
 
     if !skills.names().is_empty() {
+        let listing: Vec<String> = skills
+            .list()
+            .iter()
+            .map(|s| {
+                if s.description.is_empty() {
+                    s.name.clone()
+                } else {
+                    format!("{} — {}", s.name, s.description)
+                }
+            })
+            .collect();
         stable.push(format!(
             "Installed skills (check SKILL.md when relevant): {}.",
-            skills.names().join(", ")
+            listing.join("; ")
         ));
     }
 
@@ -491,9 +510,17 @@ mod tests {
     }
 
     #[test]
-    fn mcp_hint_requires_browser_sources() {
-        assert!(super::MCP_HINT.contains("Sources"));
+    fn sources_hint_covers_retrieval_tools() {
+        assert!(super::SOURCES_HINT.contains("Sources"));
+        assert!(super::SOURCES_HINT.contains("web_fetch"));
+        assert!(super::SOURCES_HINT.contains("memory_search"));
+        assert!(super::SOURCES_HINT.contains("memory_read"));
+    }
+
+    #[test]
+    fn mcp_hint_mentions_obscura_navigate() {
         assert!(super::MCP_HINT.contains("browser_navigate"));
+        assert!(!super::MCP_HINT.contains("## Sources"));
     }
 
     #[test]
