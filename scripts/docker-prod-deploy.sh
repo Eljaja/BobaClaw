@@ -13,8 +13,11 @@ DEPLOY_PATH="${DEPLOY_PATH:-/opt/bobaclaw}"
 DATA_DIR="${BOBACLAW_DATA_DIR:-$DEPLOY_PATH/data}"
 COMPOSE_FILE="${COMPOSE_FILE:-$REPO_ROOT/docker-compose.prod.yml}"
 CONFIG_FILE="$DATA_DIR/config.yaml"
+# Health is checked inside the gateway container (curl on the host fails when
+# config.yaml sets gateway.bind to 127.0.0.1 — published ports hit the container
+# bridge IP, not loopback).
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:18790/health}"
-HEALTH_TIMEOUT_SECS="${HEALTH_TIMEOUT_SECS:-90}"
+HEALTH_TIMEOUT_SECS="${HEALTH_TIMEOUT_SECS:-180}"
 LOG_TIMEOUT_SECS="${LOG_TIMEOUT_SECS:-60}"
 
 mkdir -p "$DATA_DIR"
@@ -27,6 +30,9 @@ if [ -f "$REPO_ROOT/docker/.env" ]; then
   source "$REPO_ROOT/docker/.env"
   set +a
 fi
+
+SANDBOX_IMAGE="${BOBACLAW_SANDBOX_IMAGE:-bobaclaw/sandbox:latest}"
+OBSCURA_IMAGE="${OBSCURA_MCP_IMAGE:-h4ckf0r0day/obscura}"
 
 export BOBACLAW_DATA_DIR="$DATA_DIR"
 
@@ -46,14 +52,23 @@ telegram_enabled_in_config() {
 echo "=== pull images ==="
 docker compose -f "$COMPOSE_FILE" pull
 
+echo "=== prefetch sandbox + obscura (entrypoint pulls too; prefetch avoids health-timeout on cold cache) ==="
+docker pull "$SANDBOX_IMAGE" || echo "warn: sandbox prefetch failed" >&2
+docker pull "$OBSCURA_IMAGE" || echo "warn: obscura prefetch failed" >&2
+
+gateway_health_ok() {
+  docker compose -f "$COMPOSE_FILE" exec -T bobaclaw \
+    curl -fsS "$HEALTH_URL" >/dev/null 2>&1
+}
+
 echo "=== start gateway (scheduler + telegram are embedded in gateway start) ==="
 docker compose -f "$COMPOSE_FILE" up -d --force-recreate --remove-orphans
 
-echo "=== wait for gateway health ==="
+echo "=== wait for gateway health (inside container) ==="
 deadline=$((SECONDS + HEALTH_TIMEOUT_SECS))
-until curl -fsS "$HEALTH_URL" >/dev/null 2>&1; do
+until gateway_health_ok; do
   if [ "$SECONDS" -ge "$deadline" ]; then
-    echo "error: gateway health check timed out ($HEALTH_URL)" >&2
+    echo "error: gateway health check timed out ($HEALTH_URL via docker exec)" >&2
     docker compose -f "$COMPOSE_FILE" logs --tail=80 bobaclaw || true
     exit 1
   fi
