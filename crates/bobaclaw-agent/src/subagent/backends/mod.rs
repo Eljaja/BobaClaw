@@ -1,7 +1,10 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use bobaclaw_core::{head_tail_with_hint, BobaConfig, BobaPaths, TurnInterrupted};
+use bobaclaw_core::{
+    head_tail_with_hint, BobaConfig, BobaPaths, ClaudeCodeBackendConfig, CodexBackendConfig,
+    TurnInterrupted,
+};
 use bobaclaw_executor::{ExecutorProfile, SandboxExecutor};
 use bobaclaw_state::RunLedger;
 use sqlx::SqlitePool;
@@ -23,12 +26,7 @@ pub async fn run_claude_code(
     progress: Option<&dyn AgentProgress>,
 ) -> anyhow::Result<SubagentRunResult> {
     let cfg = &config.subagents.backends.claude_code;
-    let prompt = build_cli_prompt(task, context);
-    let escaped = shell_escape(&prompt);
-    let command = format!(
-        "{} --bare -p {} --output-format json --max-turns {}",
-        cfg.command, escaped, cfg.max_turns
-    );
+    let command = claude_code_command(cfg, &build_cli_prompt(task, context));
     run_external_command(
         paths,
         config,
@@ -57,12 +55,7 @@ pub async fn run_codex(
     progress: Option<&dyn AgentProgress>,
 ) -> anyhow::Result<SubagentRunResult> {
     let cfg = &config.subagents.backends.codex;
-    let prompt = build_cli_prompt(task, context);
-    let escaped = shell_escape(&prompt);
-    let command = format!(
-        "{} exec --sandbox {} --json {}",
-        cfg.command, cfg.sandbox, escaped
-    );
+    let command = codex_command(cfg, &build_cli_prompt(task, context));
     run_external_command(
         paths,
         config,
@@ -116,6 +109,24 @@ pub async fn run_cursor_local(
         "cursor",
     )
     .await
+}
+
+fn claude_code_command(cfg: &ClaudeCodeBackendConfig, prompt: &str) -> String {
+    format!(
+        "{} --bare -p {} --output-format json --max-turns {}",
+        cfg.command,
+        shell_escape(prompt),
+        cfg.max_turns
+    )
+}
+
+fn codex_command(cfg: &CodexBackendConfig, prompt: &str) -> String {
+    format!(
+        "{} exec --sandbox {} --json {}",
+        cfg.command,
+        cfg.sandbox,
+        shell_escape(prompt)
+    )
 }
 
 fn resolve_wrapper_script() -> PathBuf {
@@ -189,15 +200,11 @@ async fn run_external_command(
         },
     );
 
-    let api_key = std::env::var(api_key_env)
-        .map_err(|_| anyhow::anyhow!("missing env {api_key_env} for subagent backend {label}"))?;
-    let full_command = format!(
-        "export {}={} && {}",
-        api_key_env,
-        shell_escape(&api_key),
-        command
-    );
-
+    // The key reaches the child process env only (bwrap: 0600 env file outside the
+    // capsule; Docker: `exec -e NAME`). It is never embedded in the command text, which
+    // is persisted as `script.sh` / `capsule.yaml` and shown in progress labels.
+    let secrets = subagent_secret_env(api_key_env, label)?;
+    let command_owned = command.to_string();
     let executor_cfg = config.executor.clone();
     let profile_clone = profile.clone();
     let paths_workspace = paths.workspace.clone();
@@ -206,13 +213,14 @@ async fn run_external_command(
     let timeout = timeout_secs.max(1);
 
     let exec_fut = tokio::task::spawn_blocking(move || {
-        SandboxExecutor::exec_command(
+        SandboxExecutor::exec_command_with_secrets(
             &executor_cfg,
             &profile_clone,
             &paths_workspace,
             &workspace_clone,
             &run_dir_clone,
-            &full_command,
+            &command_owned,
+            &secrets,
         )
     });
 
@@ -256,6 +264,13 @@ async fn run_external_command(
     })
 }
 
+/// Secret env for an external subagent CLI, read from the gateway environment.
+fn subagent_secret_env(api_key_env: &str, label: &str) -> anyhow::Result<Vec<(String, String)>> {
+    let api_key = std::env::var(api_key_env)
+        .map_err(|_| anyhow::anyhow!("missing env {api_key_env} for subagent backend {label}"))?;
+    Ok(vec![(api_key_env.to_string(), api_key)])
+}
+
 fn truncate_label(s: &str, max: usize) -> String {
     if s.chars().count() <= max {
         return s.to_string();
@@ -263,4 +278,53 @@ fn truncate_label(s: &str, max: usize) -> String {
     let mut out: String = s.chars().take(max).collect();
     out.push('…');
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const KEY_ENV: &str = "BOBACLAW_TEST_SUBAGENT_FAKE_API_KEY";
+    const KEY_VALUE: &str = "sk-test-subagent-must-not-leak-9876";
+
+    #[test]
+    fn api_key_is_passed_as_secret_env_not_command_text() {
+        std::env::set_var(KEY_ENV, KEY_VALUE);
+        let secrets = subagent_secret_env(KEY_ENV, "codex").unwrap();
+        assert_eq!(secrets, vec![(KEY_ENV.to_string(), KEY_VALUE.to_string())]);
+        std::env::remove_var(KEY_ENV);
+        assert!(subagent_secret_env(KEY_ENV, "codex").is_err());
+    }
+
+    /// The command handed to the executor (persisted verbatim as capsule `script.sh`)
+    /// must not carry the key; the executor-side guarantee for script/argv/logs is
+    /// covered in `bobaclaw-executor` (`bwrap::tests`, `docker::tests`).
+    #[test]
+    fn subagent_command_text_has_no_key_or_export() {
+        // Separate var from the other test: tests run in parallel and share process env.
+        const CMD_KEY_ENV: &str = "BOBACLAW_TEST_SUBAGENT_CMD_FAKE_API_KEY";
+        std::env::set_var(CMD_KEY_ENV, KEY_VALUE);
+        let mut config = BobaConfig::default();
+        config.subagents.backends.codex.api_key_env = CMD_KEY_ENV.into();
+        config.subagents.backends.claude_code.api_key_env = CMD_KEY_ENV.into();
+        let prompt = build_cli_prompt("task", Some("ctx"));
+        for (label, command, key_env) in [
+            (
+                "codex",
+                codex_command(&config.subagents.backends.codex, &prompt),
+                &config.subagents.backends.codex.api_key_env,
+            ),
+            (
+                "claude-code",
+                claude_code_command(&config.subagents.backends.claude_code, &prompt),
+                &config.subagents.backends.claude_code.api_key_env,
+            ),
+        ] {
+            let secrets = subagent_secret_env(key_env, label).unwrap();
+            assert_eq!(secrets[0].1, KEY_VALUE);
+            assert!(!command.contains(KEY_VALUE), "{label} command leaked key");
+            assert!(!command.contains("export "), "{label} command exports env");
+        }
+        std::env::remove_var(CMD_KEY_ENV);
+    }
 }

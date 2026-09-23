@@ -111,6 +111,36 @@ pub struct GatewayConfig {
     /// Max concurrent agent turns across different sessions (same session stays serialized).
     #[serde(default = "default_max_parallel_turns")]
     pub max_parallel_turns: usize,
+    /// Env var holding the bearer token required on every route except `/health`.
+    /// Non-loopback binds refuse to start without a token (fail closed).
+    #[serde(default = "default_gateway_auth_token_env")]
+    pub auth_token_env: String,
+    /// Inline bearer token (optional; takes precedence over `auth_token_env`).
+    /// Prefer the env var for anything non-throwaway.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub auth_token: String,
+}
+
+fn default_gateway_auth_token_env() -> String {
+    "BOBACLAW_GATEWAY_TOKEN".into()
+}
+
+impl GatewayConfig {
+    /// Resolved bearer token: inline `auth_token`, else the `auth_token_env` variable.
+    /// Empty / whitespace-only values count as "not configured".
+    pub fn resolve_auth_token(&self) -> Option<String> {
+        let inline = self.auth_token.trim();
+        if !inline.is_empty() {
+            return Some(inline.to_string());
+        }
+        if self.auth_token_env.trim().is_empty() {
+            return None;
+        }
+        std::env::var(self.auth_token_env.trim())
+            .ok()
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+    }
 }
 
 fn default_max_parallel_turns() -> usize {
@@ -178,6 +208,12 @@ pub struct ExecutorConfig {
     pub sandbox_packages: bool,
     #[serde(default)]
     pub docker: DockerExecutorConfig,
+    /// Host env var names forwarded into the bubblewrap sandbox (e.g. `HTTPS_PROXY`).
+    /// The sandbox starts from a cleared environment; only `PATH`, `HOME`, `LANG`,
+    /// `TERM` (+ package-manager vars) are set otherwise. Values appear in the host
+    /// process list (bwrap argv) — never list secrets here.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub env_passthrough: Vec<String>,
 }
 
 fn default_executor_network() -> bool {
@@ -195,6 +231,7 @@ impl Default for ExecutorConfig {
             network: default_executor_network(),
             sandbox_packages: default_executor_sandbox_packages(),
             docker: DockerExecutorConfig::default(),
+            env_passthrough: Vec::new(),
         }
     }
 }
@@ -205,6 +242,8 @@ impl Default for GatewayConfig {
             bind: default_bind(),
             port: default_port(),
             max_parallel_turns: default_max_parallel_turns(),
+            auth_token_env: default_gateway_auth_token_env(),
+            auth_token: String::new(),
         }
     }
 }
@@ -303,6 +342,27 @@ mod tests {
         let loaded = BobaConfig::load(&path).unwrap();
         assert_eq!(loaded.agent.max_tool_iterations, 42);
         assert_eq!(BobaConfig::default().agent.max_tool_iterations, 60);
+    }
+
+    #[test]
+    fn gateway_auth_defaults_and_inline_token() {
+        let mut cfg = BobaConfig::default();
+        assert_eq!(cfg.gateway.auth_token_env, "BOBACLAW_GATEWAY_TOKEN");
+        cfg.gateway.auth_token_env = "BOBACLAW_TEST_UNSET_GATEWAY_TOKEN_VAR".into();
+        assert_eq!(cfg.gateway.resolve_auth_token(), None);
+        cfg.gateway.auth_token = "  s3cret  ".into();
+        assert_eq!(cfg.gateway.resolve_auth_token().as_deref(), Some("s3cret"));
+    }
+
+    #[test]
+    fn load_gateway_auth_token_env() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.yaml");
+        std::fs::write(&path, "gateway:\n  auth_token_env: MY_TOKEN\n").unwrap();
+        let loaded = BobaConfig::load(&path).unwrap();
+        assert_eq!(loaded.gateway.auth_token_env, "MY_TOKEN");
+        assert!(loaded.gateway.auth_token.is_empty());
+        assert!(loaded.executor.env_passthrough.is_empty());
     }
 
     #[test]

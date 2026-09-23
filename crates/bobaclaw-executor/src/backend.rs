@@ -2,7 +2,7 @@ use std::path::Path;
 
 use bobaclaw_core::{ExecutorBackend, ExecutorConfig};
 
-use crate::bwrap::BwrapExecutor;
+use crate::bwrap::{BwrapExecutor, SandboxEnv};
 use crate::docker::DockerExecutor;
 use crate::profile::ExecutorProfile;
 use crate::run::ExecutionResult;
@@ -19,10 +19,37 @@ impl SandboxExecutor {
         run_dir: &Path,
         command: &str,
     ) -> anyhow::Result<ExecutionResult> {
+        Self::exec_command_with_secrets(
+            executor,
+            profile,
+            workspace_root,
+            workspace,
+            run_dir,
+            command,
+            &[],
+        )
+    }
+
+    /// Like [`Self::exec_command`], but hands `secrets` (`NAME`, value) to the sandboxed
+    /// child process only. Secret values never appear in the command text, `script.sh`,
+    /// `capsule.yaml`, logs, or the host process argv.
+    pub fn exec_command_with_secrets(
+        executor: &ExecutorConfig,
+        profile: &ExecutorProfile,
+        workspace_root: &Path,
+        workspace: &Path,
+        run_dir: &Path,
+        command: &str,
+        secrets: &[(String, String)],
+    ) -> anyhow::Result<ExecutionResult> {
         let command = prepare_command(executor, profile, command);
         match executor.backend {
             ExecutorBackend::Bubblewrap => {
-                BwrapExecutor::exec_command(profile, workspace, run_dir, &command)
+                let env = SandboxEnv {
+                    passthrough: executor.env_passthrough.clone(),
+                    secrets: secrets.to_vec(),
+                };
+                BwrapExecutor::exec_command(profile, workspace, run_dir, &command, &env)
             }
             ExecutorBackend::Docker => DockerExecutor::exec_command(
                 executor,
@@ -31,6 +58,7 @@ impl SandboxExecutor {
                 workspace,
                 run_dir,
                 &command,
+                secrets,
             ),
         }
     }
