@@ -1,16 +1,60 @@
-# Production stack: BobaClaw gateway + host Docker for sandbox and Obscura MCP.
+# Production stack: BobaClaw gateway + Docker socket proxy (sandbox + Obscura MCP containers).
 #
 # Setup:
 #   mkdir -p /opt/bobaclaw/data
 #   edit /opt/bobaclaw/data/config.yaml   # API key, Telegram token, channels, executor
 #   make docker-build && make docker-up
 #
-# Optional docker/.env — image tags / RUST_LOG only (no secrets required).
+# Gateway auth (REQUIRED): the gateway binds 0.0.0.0 inside the container and refuses to
+# start without a bearer token. `scripts/docker-prod-deploy.sh` resolves it from
+# BOBACLAW_GATEWAY_TOKEN (env / docker/.env / CI secret) or $DATA_DIR/gateway-token
+# (generated with mode 0600 on first deploy). Clients send `Authorization: Bearer <token>`
+# on every route except /health.
+#
+# The API port is published on host loopback only; put a TLS reverse proxy in front for
+# remote access.
+#
+# Optional docker/.env — image tags / RUST_LOG / gateway token (see docker/.env.example).
 #
 # Update (CI/CD or manual):
 #   make docker-pull && make docker-up
 
 services:
+  # Filters the Docker API: the gateway never sees /var/run/docker.sock directly.
+  # Enabled sections (everything else, incl. BUILD/COMMIT/SWARM/SECRETS/VOLUMES/NETWORKS/
+  # PLUGINS/SYSTEM/AUTH, returns 403):
+  #   PING, VERSION  — CLI API-version negotiation (/_ping, /version)
+  #   INFO           — `docker info` (entrypoint, `bobaclaw doctor`, executor daemon check)
+  #   CONTAINERS     — sandbox + MCP containers: create, start, inspect, ps, rm -f,
+  #                    attach/wait for `docker run -i`, and POST /containers/{id}/exec
+  #   EXEC           — `docker exec` stream + exit code (/exec/{id}/start, /exec/{id}/json)
+  #   IMAGES         — `docker pull` (entrypoint) and implicit pulls on create/run
+  #   POST           — any non-GET method; required by every write above (incl. DELETE)
+  # Caveat: CONTAINERS+POST still lets a compromised gateway create a privileged container
+  # with host bind mounts, i.e. this narrows the API surface but is NOT a root boundary.
+  # Attached streams (`docker exec`, `docker run -i` MCP stdio) go through HAProxy with a
+  # 10 min idle timeout: silent streams longer than that are cut (MCP hub reconnects).
+  docker-socket-proxy:
+    image: ${DOCKER_SOCKET_PROXY_IMAGE:-tecnativa/docker-socket-proxy:v0.5.0}
+    container_name: bobaclaw-docker-socket-proxy
+    restart: unless-stopped
+    environment:
+      PING: 1
+      VERSION: 1
+      INFO: 1
+      CONTAINERS: 1
+      EXEC: 1
+      IMAGES: 1
+      POST: 1
+      EVENTS: 0
+      LOG_LEVEL: warning
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - docker-api
+
   bobaclaw:
     image: ${BOBACLAW_IMAGE:-bobaclaw/bobaclaw:latest}
     build:
@@ -18,6 +62,8 @@ services:
       dockerfile: docker/bobaclaw/Dockerfile
     container_name: bobaclaw-gateway
     restart: unless-stopped
+    depends_on:
+      - docker-socket-proxy
     environment:
       BOBACLAW_HOME: /data
       # Host path for /data bind mount — required so sandbox containers mount real workspace/runs.
@@ -26,14 +72,26 @@ services:
       OBSCURA_MCP_IMAGE: ${OBSCURA_MCP_IMAGE:-h4ckf0r0day/obscura}
       BOBACLAW_PULL_IMAGES: ${BOBACLAW_PULL_IMAGES:-1}
       RUST_LOG: ${RUST_LOG:-bobaclaw=info}
+      # Docker CLI talks to the filtered proxy, not the host socket.
+      DOCKER_HOST: tcp://docker-socket-proxy:2375
+      # Bearer token for the HTTP API. Empty → gateway refuses to start (non-loopback bind)
+      # unless config.yaml sets gateway.auth_token.
+      BOBACLAW_GATEWAY_TOKEN: ${BOBACLAW_GATEWAY_TOKEN:-}
     volumes:
       - ${BOBACLAW_DATA_DIR:-/opt/bobaclaw/data}:/data
-      - /var/run/docker.sock:/var/run/docker.sock
     ports:
-      - "${BOBACLAW_GATEWAY_PORT:-18790}:18790"
+      - "127.0.0.1:${BOBACLAW_GATEWAY_PORT:-18790}:18790"
+    networks:
+      - default
+      - docker-api
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:18790/health"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 45s
+
+networks:
+  # No external connectivity: only the gateway can reach the Docker API proxy.
+  docker-api:
+    internal: true

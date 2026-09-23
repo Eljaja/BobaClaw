@@ -20,9 +20,15 @@ executor:
     container_name: bobaclaw-sandbox
 
 gateway:
+  # 0.0.0.0 is required *inside* the container so the published port reaches the
+  # gateway; docker-compose.prod.yml publishes it on host loopback only.
+  # Non-loopback binds REQUIRE a bearer token — the gateway refuses to start without one.
+  # The token comes from env BOBACLAW_GATEWAY_TOKEN (set by scripts/docker-prod-deploy.sh
+  # from docker/.env, a CI secret, or data/gateway-token) or inline gateway.auth_token.
   bind: 0.0.0.0
   port: 18790
   max_parallel_turns: 4
+  auth_token_env: BOBACLAW_GATEWAY_TOKEN
 
 channels:
   telegram:

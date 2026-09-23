@@ -123,3 +123,5 @@ jobs:
           ./scripts/docker-prod-deploy.sh
         env:
           DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+          # Optional: when unset, the deploy script uses/generates $DEPLOY_PATH/data/gateway-token.
+          BOBACLAW_GATEWAY_TOKEN: ${{ secrets.BOBACLAW_GATEWAY_TOKEN }}
