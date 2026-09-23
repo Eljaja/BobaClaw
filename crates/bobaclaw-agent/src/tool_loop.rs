@@ -132,7 +132,7 @@ pub async fn run_tool_loop(
     let max_empty_response_retries = config.agent.max_empty_response_retries;
     let mut state = ToolLoopState::new();
     let mut hit_iteration_limit = false;
-    let history_boundary = messages.len();
+    let mut history_boundary = messages.len();
 
     for iteration in 1..=max_iterations {
         if let Err(TurnInterrupted) = check_cancel(cancel) {
@@ -143,7 +143,7 @@ pub async fn run_tool_loop(
             config,
             session_id,
             messages,
-            history_boundary,
+            &mut history_boundary,
             progress,
         )
         .await?;
@@ -275,7 +275,7 @@ pub async fn run_tool_loop(
                 config,
                 session_id,
                 messages,
-                history_boundary,
+                &mut history_boundary,
                 progress,
             )
             .await?;

@@ -95,14 +95,36 @@ impl<'a> SessionStore<'a> {
         role: &str,
         content: &str,
     ) -> anyhow::Result<()> {
+        self.insert_message(session_id, role, content, None).await
+    }
+
+    /// Append a `compaction` summary row covering every message with `id <= covers_through_id`.
+    pub async fn append_compaction(
+        &self,
+        session_id: &str,
+        content: &str,
+        covers_through_id: i64,
+    ) -> anyhow::Result<()> {
+        self.insert_message(session_id, "compaction", content, Some(covers_through_id))
+            .await
+    }
+
+    async fn insert_message(
+        &self,
+        session_id: &str,
+        role: &str,
+        content: &str,
+        covers_through_id: Option<i64>,
+    ) -> anyhow::Result<()> {
         let now = Utc::now().timestamp_millis() as f64 / 1000.0;
         sqlx::query(
-            "INSERT INTO messages (session_id, role, content, timestamp) VALUES (?1, ?2, ?3, ?4)",
+            "INSERT INTO messages (session_id, role, content, timestamp, covers_through_id) VALUES (?1, ?2, ?3, ?4, ?5)",
         )
         .bind(session_id)
         .bind(role)
         .bind(content)
         .bind(now)
+        .bind(covers_through_id)
         .execute(self.pool)
         .await?;
 
@@ -180,6 +202,28 @@ impl<'a> SessionStore<'a> {
         Ok(rows)
     }
 
+    /// Full message rows (with ids and compaction boundaries), ordered by id.
+    pub async fn list_stored_messages(
+        &self,
+        session_id: &str,
+    ) -> anyhow::Result<Vec<StoredMessage>> {
+        let rows = sqlx::query_as::<_, (i64, String, String, Option<i64>)>(
+            "SELECT id, role, COALESCE(content, ''), covers_through_id FROM messages WHERE session_id = ?1 ORDER BY id ASC",
+        )
+        .bind(session_id)
+        .fetch_all(self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(id, role, content, covers_through_id)| StoredMessage {
+                id,
+                role,
+                content,
+                covers_through_id,
+            })
+            .collect())
+    }
+
     /// Count user-role messages in a session (for memory review turn gate).
     pub async fn count_user_messages(&self, session_id: &str) -> anyhow::Result<usize> {
         let count: i64 = sqlx::query_scalar(
@@ -235,6 +279,16 @@ impl<'a> SessionStore<'a> {
             })
             .collect())
     }
+}
+
+/// A persisted message row. `covers_through_id` is set only on `compaction` rows written
+/// after the boundary migration: the id of the last message the summary covers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredMessage {
+    pub id: i64,
+    pub role: String,
+    pub content: String,
+    pub covers_through_id: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -341,5 +395,28 @@ mod tests {
 
         let msgs = store.list_messages(&sid2).await.unwrap();
         assert!(msgs.is_empty());
+    }
+
+    #[tokio::test]
+    async fn compaction_row_stores_boundary() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = StateDb::open(&dir.path().join("state.db")).await.unwrap();
+        let store = SessionStore::new(db.pool());
+        let sid = store.get_or_create_cli("test").await.unwrap();
+        store.append_message(&sid, "user", "a").await.unwrap();
+        store.append_message(&sid, "assistant", "b").await.unwrap();
+        let rows = store.list_stored_messages(&sid).await.unwrap();
+        let boundary = rows[0].id;
+        store
+            .append_compaction(&sid, "sum", boundary)
+            .await
+            .unwrap();
+
+        let rows = store.list_stored_messages(&sid).await.unwrap();
+        assert_eq!(rows.len(), 3);
+        assert!(rows.iter().take(2).all(|r| r.covers_through_id.is_none()));
+        assert_eq!(rows[2].role, "compaction");
+        assert_eq!(rows[2].covers_through_id, Some(boundary));
+        assert_eq!(store.list_messages(&sid).await.unwrap().len(), 3);
     }
 }
