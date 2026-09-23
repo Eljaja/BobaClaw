@@ -384,14 +384,10 @@ async fn cmd_channel(
         },
         ChannelCommand::Web { action } => match action {
             WebAction::Start => {
-                let web = &config.channels.web;
-                if !web.enabled {
+                // Bind/token policy is enforced (and logged) inside `serve`.
+                if !config.channels.web.enabled {
                     anyhow::bail!("enable channels.web.enabled in config.yaml");
                 }
-                bobaclaw_channel_web::check_bind_policy(
-                    &web.bind,
-                    &bobaclaw_channel_web::WebAuth::from_config(web),
-                )?;
                 let dispatcher = std::sync::Arc::new(
                     bobaclaw_agent::AgentDispatcher::new(paths.clone(), config.clone()).await?,
                 );
