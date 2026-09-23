@@ -3,6 +3,8 @@ use std::sync::Arc;
 use axum::extract::{Path, Query, State};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+
+use crate::auth::{with_auth, GatewayAuth};
 use bobaclaw_agent::{build_delivery_registry, AgentDispatcher};
 use bobaclaw_channel_telegram::{run_telegram_polling, TelegramApi, TelegramChannelDelivery};
 use bobaclaw_core::{BobaConfig, BobaPaths, IngressKind, NormalizedRequest};
@@ -55,6 +57,8 @@ pub async fn serve(paths: BobaPaths, config: BobaConfig) -> anyhow::Result<()> {
         config: config.clone(),
     });
 
+    let auth = GatewayAuth::from_config(&config.gateway)?;
+
     let app = Router::new()
         .route("/health", get(health))
         .route("/v1/chat/completions", post(chat_completions))
@@ -63,6 +67,7 @@ pub async fn serve(paths: BobaPaths, config: BobaConfig) -> anyhow::Result<()> {
         .route("/api/spawn/jobs", get(api_spawn_jobs_list))
         .route("/api/spawn/jobs/{id}", get(api_spawn_job_get))
         .with_state(state);
+    let app = with_auth(app, auth);
 
     spawn_in_process_scheduler(paths.clone(), config.clone(), Some(dispatcher.clone()));
 
