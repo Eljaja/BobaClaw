@@ -25,8 +25,14 @@ context:
 
 executor:
   backend: bubblewrap   # bubblewrap | docker
+  # Network egress for exec. Default true (compat); set false for untrusted input —
+  # see harness/sandbox-contract.md.
   network: true
   sandbox_packages: true   # bubblewrap only; Docker installs into the container FS
+  # The sandbox never inherits the host env (bwrap --clearenv; docker exec forwards nothing).
+  # Only PATH/HOME/LANG/TERM (+ package-manager vars) are set. Forward extra non-secret
+  # host vars by name, e.g. proxies (values are visible in the host process list):
+  # env_passthrough: [HTTPS_PROXY, HTTP_PROXY, NO_PROXY]
   docker:
     # Build first: ./scripts/build-sandbox-image.sh  (Ubuntu + Python, amd64/arm64)
     image: bobaclaw/sandbox:latest
@@ -35,6 +41,11 @@ executor:
 gateway:
   bind: 127.0.0.1
   port: 18790
+  # Bearer token for every route except /health (`Authorization: Bearer <token>`).
+  # No token + loopback bind → allowed with a warning; no token + non-loopback bind →
+  # the gateway refuses to start.
+  auth_token_env: BOBACLAW_GATEWAY_TOKEN
+  # auth_token: ""   # inline alternative (takes precedence); prefer the env var
   # Parallel agent turns for different Telegram DMs / sessions (same chat stays serialized).
   max_parallel_turns: 4
 

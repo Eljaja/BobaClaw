@@ -245,8 +245,17 @@ ENTRYPOINT ["bobaclaw"]
 ```bash
 cp docker-compose.prod.yml docker-compose.yml
 # Set OPENAI_API_KEY and TELEGRAM_BOT_TOKEN in your environment
+# Required: gateway bearer token (the container binds 0.0.0.0 and refuses to start without it)
+export BOBACLAW_GATEWAY_TOKEN="$(openssl rand -hex 32)"
 docker compose up -d
+curl -H "Authorization: Bearer $BOBACLAW_GATEWAY_TOKEN" http://127.0.0.1:18790/api/agent \
+  -H 'Content-Type: application/json' -d '{"message":"hi"}'
 ```
+
+`make docker-up` (`scripts/docker-prod-deploy.sh`) resolves the token automatically from
+`BOBACLAW_GATEWAY_TOKEN` or `data/gateway-token` (generated on first deploy). The API port
+is published on host loopback only, and the gateway talks to Docker through
+`docker-socket-proxy` instead of mounting `/var/run/docker.sock` (see `docs/as-built.md`).
 
 ### Run without Docker (production)
 
@@ -261,6 +270,7 @@ After=network.target
 ExecStart=/usr/local/bin/bobaclaw gateway start
 Restart=always
 Environment=OPENAI_API_KEY=<key>
+Environment=BOBACLAW_GATEWAY_TOKEN=<random token; required if gateway.bind is not loopback>
 Environment=BOBACLAW_HOME=/var/lib/bobaclaw
 
 [Install]

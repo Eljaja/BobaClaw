@@ -14,3 +14,7 @@ scripts/debug-sandbox-*.sh
 scripts/check-mounts.sh
 scripts/test-proxy-*.sh
 scripts/test-telegram-connect.sh
+
+# Docker compose overrides (may hold BOBACLAW_GATEWAY_TOKEN) — never commit
+docker/.env
+.env

@@ -3,6 +3,7 @@ use std::process::Command;
 
 use bobaclaw_core::{CommandCapsuleManifest, DockerExecutorConfig, ExecutorConfig};
 
+use crate::bwrap::is_valid_env_name;
 use crate::docker_mount::docker_bind_source;
 use crate::profile::ExecutorProfile;
 use crate::run::{ExecutionResult, RunArtifacts};
@@ -27,6 +28,7 @@ impl DockerExecutor {
         workspace: &Path,
         run_dir: &Path,
         command: &str,
+        secrets: &[(String, String)],
     ) -> anyhow::Result<ExecutionResult> {
         std::fs::create_dir_all(workspace_root)?;
         std::fs::create_dir_all(workspace)?;
@@ -45,22 +47,6 @@ impl DockerExecutor {
         let run_dir = run_dir.canonicalize()?;
         let container_workdir = container_workdir(&workspace_root, &workspace)?;
 
-        let mut cmd = Command::new("docker");
-        cmd.args([
-            "exec",
-            "-w",
-            &container_workdir,
-            &executor.docker.container_name,
-            "/bin/bash",
-            "-lc",
-            command,
-        ]);
-
-        let output = cmd.output()?;
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let code = output.status.code().unwrap_or(1);
-
         let manifest = CommandCapsuleManifest {
             language: "bash".into(),
             argv: vec!["/bin/bash".into(), "-lc".into(), command.into()],
@@ -69,8 +55,41 @@ impl DockerExecutor {
             network: profile.allow_network,
         };
         let artifacts = RunArtifacts::prepare(&run_dir, command, &manifest)?;
+
+        let mut cmd = build_exec_command(
+            &executor.docker.container_name,
+            &container_workdir,
+            command,
+            secrets,
+        )?;
+        let output = cmd.output()?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let code = output.status.code().unwrap_or(1);
         artifacts.write_result(code, &stdout, &stderr)
     }
+}
+
+/// `docker exec` never forwards the host environment: the container sees only its image
+/// env. Secrets are passed as `-e NAME` (no value in argv) with the value set on the
+/// docker CLI process env, so they reach the exec'd child only.
+fn build_exec_command(
+    container_name: &str,
+    container_workdir: &str,
+    command: &str,
+    secrets: &[(String, String)],
+) -> anyhow::Result<Command> {
+    let mut cmd = Command::new("docker");
+    cmd.args(["exec", "-w", container_workdir]);
+    for (name, value) in secrets {
+        if !is_valid_env_name(name) {
+            anyhow::bail!("invalid secret env var name: {name:?}");
+        }
+        cmd.args(["-e", name.as_str()]);
+        cmd.env(name, value);
+    }
+    cmd.args([container_name, "/bin/bash", "-lc", command]);
+    Ok(cmd)
 }
 
 pub fn ensure_container(
@@ -126,12 +145,32 @@ fn create_container(
         container_name,
     } = &executor.docker;
 
-    let network = if executor.network { "bridge" } else { "none" };
+    let args = create_args(
+        workspace_abs,
+        runs_abs,
+        image,
+        container_name,
+        executor.network,
+    );
+    let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    run_docker(&arg_refs)?;
+    Ok(())
+}
 
-    let args = vec![
+/// `docker create` argv. No `-e` / `--env-file`: the sandbox container never receives
+/// host env (API keys stay in the gateway process).
+fn create_args(
+    workspace_abs: &Path,
+    runs_abs: &Path,
+    image: &str,
+    container_name: &str,
+    network: bool,
+) -> Vec<String> {
+    let network = if network { "bridge" } else { "none" };
+    vec![
         "create".to_string(),
         "--name".to_string(),
-        container_name.clone(),
+        container_name.to_string(),
         "--label".to_string(),
         SANDBOX_LABEL.to_string(),
         "--network".to_string(),
@@ -143,14 +182,10 @@ fn create_container(
         format!("{}:/workspace", workspace_abs.display()),
         "-v".to_string(),
         format!("{}:/runs", runs_abs.display()),
-        image.clone(),
+        image.to_string(),
         "sleep".to_string(),
         "infinity".to_string(),
-    ];
-
-    let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
-    run_docker(&arg_refs)?;
-    Ok(())
+    ]
 }
 
 fn container_workdir(workspace_root: &Path, workspace: &Path) -> anyhow::Result<String> {
@@ -207,6 +242,61 @@ mod tests {
         let root = PathBuf::from("/home/user/.bobaclaw/workspace");
         let group = root.join("home");
         assert_eq!(container_workdir(&root, &group).unwrap(), "/workspace/home");
+    }
+
+    #[test]
+    fn exec_command_passes_secret_by_name_only() {
+        let secrets = vec![(
+            "OPENAI_API_KEY".to_string(),
+            "sk-test-docker-must-not-leak".to_string(),
+        )];
+        let cmd = build_exec_command("sbx", "/workspace", "codex exec 'hi'", &secrets).unwrap();
+        let args: Vec<String> = cmd
+            .get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            args,
+            vec![
+                "exec",
+                "-w",
+                "/workspace",
+                "-e",
+                "OPENAI_API_KEY",
+                "sbx",
+                "/bin/bash",
+                "-lc",
+                "codex exec 'hi'"
+            ]
+        );
+        assert!(!args.join(" ").contains("sk-test-docker-must-not-leak"));
+        let envs: Vec<_> = cmd.get_envs().collect();
+        assert_eq!(envs.len(), 1);
+        assert!(build_exec_command("sbx", "/w", "true", &[("A=B".into(), "x".into())]).is_err());
+    }
+
+    #[test]
+    fn exec_and_create_do_not_forward_host_env() {
+        std::env::set_var("BOBACLAW_TEST_DOCKER_FAKE_KEY", "sk-host-only");
+        let cmd = build_exec_command("sbx", "/workspace", "printenv", &[]).unwrap();
+        assert_eq!(cmd.get_envs().count(), 0);
+        let exec_args: Vec<String> = cmd
+            .get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        let create = create_args(
+            Path::new("/data/workspace"),
+            Path::new("/data/runs"),
+            "bobaclaw/sandbox:latest",
+            "sbx",
+            true,
+        );
+        for args in [&exec_args, &create] {
+            assert!(!args
+                .iter()
+                .any(|a| a == "-e" || a.starts_with("--env") || a.contains("sk-host-only")));
+        }
+        std::env::remove_var("BOBACLAW_TEST_DOCKER_FAKE_KEY");
     }
 
     #[test]

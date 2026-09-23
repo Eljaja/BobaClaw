@@ -36,6 +36,24 @@ OBSCURA_IMAGE="${OBSCURA_MCP_IMAGE:-h4ckf0r0day/obscura}"
 
 export BOBACLAW_DATA_DIR="$DATA_DIR"
 
+# Gateway bearer token (required: the container binds 0.0.0.0 and the gateway refuses to
+# start without a token). Precedence: BOBACLAW_GATEWAY_TOKEN from env / docker/.env / CI
+# secret, else $DATA_DIR/gateway-token (generated with mode 0600 on first deploy).
+TOKEN_FILE="$DATA_DIR/gateway-token"
+if [ -z "${BOBACLAW_GATEWAY_TOKEN:-}" ]; then
+  if [ ! -s "$TOKEN_FILE" ]; then
+    echo "note: BOBACLAW_GATEWAY_TOKEN not set — generating $TOKEN_FILE (mode 0600)"
+    (umask 077 && od -An -tx1 -N32 /dev/urandom | tr -d ' \n' >"$TOKEN_FILE")
+  fi
+  BOBACLAW_GATEWAY_TOKEN="$(tr -d '[:space:]' <"$TOKEN_FILE")"
+  echo "gateway token: $TOKEN_FILE"
+fi
+if [ -z "$BOBACLAW_GATEWAY_TOKEN" ]; then
+  echo "error: empty gateway token (set BOBACLAW_GATEWAY_TOKEN or fill $TOKEN_FILE)" >&2
+  exit 1
+fi
+export BOBACLAW_GATEWAY_TOKEN
+
 if [ ! -f "$CONFIG_FILE" ]; then
   echo "note: $CONFIG_FILE not found — first container start will seed a template" >&2
 else
