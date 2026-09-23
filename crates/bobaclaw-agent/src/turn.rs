@@ -93,7 +93,7 @@ pub async fn run_agent_turn(
     }
 
     let all = SessionStore::new(pool)
-        .list_messages(session_id)
+        .list_stored_messages(session_id)
         .await
         .map_err(|e| anyhow::anyhow!("не удалось прочитать историю сессии: {e}"))?;
     let history = effective_history(&all);
