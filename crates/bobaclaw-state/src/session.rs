@@ -27,6 +27,32 @@ impl<'a> SessionStore<'a> {
             .await
     }
 
+    /// Like [`Self::resolve_session`] but never creates a session: returns the active
+    /// session this request would be routed to, if any.
+    pub async fn find_session(&self, req: &NormalizedRequest) -> anyhow::Result<Option<String>> {
+        if let Some(ref sid) = req.session_id {
+            return Ok(Some(sid.clone()));
+        }
+        if let Some(ref peer) = req.channel_peer {
+            let Some(sid) = RouteStore::new(self.pool).get_session_id(peer).await? else {
+                return Ok(None);
+            };
+            return Ok(sqlx::query_scalar(
+                "SELECT id FROM sessions WHERE id = ?1 AND ended_at IS NULL",
+            )
+            .bind(&sid)
+            .fetch_optional(self.pool)
+            .await?);
+        }
+        Ok(sqlx::query_scalar::<_, String>(
+            "SELECT id FROM sessions WHERE source = ?1 AND agent_group = ?2 AND ended_at IS NULL ORDER BY started_at DESC LIMIT 1",
+        )
+        .bind(ingress_source(req.ingress))
+        .bind(&req.agent_group)
+        .fetch_optional(self.pool)
+        .await?)
+    }
+
     pub async fn get_or_create_routed(
         &self,
         peer: &ChannelPeer,
@@ -341,5 +367,24 @@ mod tests {
 
         let msgs = store.list_messages(&sid2).await.unwrap();
         assert!(msgs.is_empty());
+    }
+
+    #[tokio::test]
+    async fn find_session_does_not_create() {
+        use bobaclaw_core::ChannelPeer;
+
+        let dir = tempfile::tempdir().unwrap();
+        let db = StateDb::open(&dir.path().join("state.db")).await.unwrap();
+        let store = SessionStore::new(db.pool());
+        let peer = ChannelPeer::telegram(7, None);
+        let req = NormalizedRequest::telegram("", "home", peer, Vec::new());
+        assert_eq!(store.find_session(&req).await.unwrap(), None);
+        let sid = store.resolve_session(&req).await.unwrap();
+        assert_eq!(store.find_session(&req).await.unwrap(), Some(sid));
+
+        let cli = NormalizedRequest::cli("", "home");
+        assert_eq!(store.find_session(&cli).await.unwrap(), None);
+        let cli_sid = store.resolve_session(&cli).await.unwrap();
+        assert_eq!(store.find_session(&cli).await.unwrap(), Some(cli_sid));
     }
 }

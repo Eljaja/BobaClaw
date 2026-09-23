@@ -119,14 +119,13 @@ pub async fn run_telegram_polling(
             .await?
             {
                 if stop_only {
-                    let scope = NormalizedRequest::telegram(
+                    let req = NormalizedRequest::telegram(
                         &inbound.text,
                         &agent_group,
                         inbound.peer.clone(),
                         Vec::new(),
-                    )
-                    .dispatch_scope();
-                    let _ = dispatcher.interrupt_scope(&scope).await;
+                    );
+                    let _ = dispatcher.interrupt_request(&req).await;
                 }
                 let chat_id: i64 = inbound.peer.peer.parse().unwrap_or(0);
                 let thread_id = inbound.peer.thread_id.as_ref().and_then(|t| t.parse().ok());

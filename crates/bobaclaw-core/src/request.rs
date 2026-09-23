@@ -34,6 +34,15 @@ impl IngressKind {
             Self::SpawnWake => "spawn_wake",
         }
     }
+
+    /// Whether a new request of this kind cancels the in-flight turn on its session.
+    ///
+    /// Interactive user messages (CLI, chat UI, Telegram) preempt: newest message wins.
+    /// Background / programmatic ingress (spawn wake, cron, webhook, REST, OpenAI-compat)
+    /// never cancels another turn; it queues behind the running one instead.
+    pub fn preempts_in_flight(self) -> bool {
+        matches!(self, Self::Cli | Self::Chat | Self::Telegram)
+    }
 }
 
 /// Workspace-relative attachment from a channel (Telegram, etc.).
@@ -161,23 +170,10 @@ impl NormalizedRequest {
         format_user_content(&self.user_text, &self.attachments, workspace)
     }
 
-    /// Concurrency scope: same key → serialized turns; different keys → may run in parallel.
-    pub fn dispatch_scope(&self) -> String {
-        if let Some(ref sid) = self.session_id {
-            return format!("session:{sid}");
-        }
-        if let Some(ref peer) = self.channel_peer {
-            return format!("peer:{}", peer.route_key());
-        }
-        match self.ingress {
-            IngressKind::Cli => format!("cli:{}", self.agent_group),
-            IngressKind::Cron => format!("cron:{}", self.agent_group),
-            IngressKind::Rest | IngressKind::OpenAiCompat => format!("api:{}", self.agent_group),
-            IngressKind::Chat => format!("chat:{}", self.agent_group),
-            IngressKind::Webhook => format!("webhook:{}", self.agent_group),
-            IngressKind::Telegram => format!("telegram:{}", self.agent_group),
-            IngressKind::SpawnWake => format!("spawn_wake:{}", self.agent_group),
-        }
+    /// Dispatcher concurrency scope for a resolved session: all turns that write to the
+    /// same session history share this key and are serialized.
+    pub fn session_scope(session_id: &str) -> String {
+        format!("session:{session_id}")
     }
 
     /// Deliver channel key for spawn job persistence (mirrors scheduled_tasks).
@@ -240,16 +236,20 @@ mod tests {
     }
 
     #[test]
-    fn dispatch_scope_telegram_peer() {
-        let peer = crate::channels::ChannelPeer::telegram(42, None);
-        let r = NormalizedRequest::telegram("hi", "home", peer, vec![]);
-        assert_eq!(r.dispatch_scope(), "peer:telegram:42");
+    fn session_scope_key() {
+        assert_eq!(NormalizedRequest::session_scope("sess_1"), "session:sess_1");
     }
 
     #[test]
-    fn dispatch_scope_cli() {
-        let r = NormalizedRequest::cli("hi", "home");
-        assert_eq!(r.dispatch_scope(), "cli:home");
+    fn preemption_policy_by_ingress() {
+        assert!(IngressKind::Telegram.preempts_in_flight());
+        assert!(IngressKind::Cli.preempts_in_flight());
+        assert!(IngressKind::Chat.preempts_in_flight());
+        assert!(!IngressKind::SpawnWake.preempts_in_flight());
+        assert!(!IngressKind::Cron.preempts_in_flight());
+        assert!(!IngressKind::Webhook.preempts_in_flight());
+        assert!(!IngressKind::Rest.preempts_in_flight());
+        assert!(!IngressKind::OpenAiCompat.preempts_in_flight());
     }
 
     #[test]
