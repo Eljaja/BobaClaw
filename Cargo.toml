@@ -11,6 +11,7 @@ members = [
     "crates/bobaclaw-skills",
     "crates/bobaclaw-skill-forge",
     "crates/bobaclaw-channel-telegram",
+    "crates/bobaclaw-channel-web",
     "crates/bobaclaw-scheduler",
     "crates/bobaclaw-mcp",
 ]
@@ -57,6 +58,7 @@ bobaclaw-gateway = { path = "crates/bobaclaw-gateway" }
 bobaclaw-skills = { path = "crates/bobaclaw-skills" }
 bobaclaw-skill-forge = { path = "crates/bobaclaw-skill-forge" }
 bobaclaw-channel-telegram = { path = "crates/bobaclaw-channel-telegram" }
+bobaclaw-channel-web = { path = "crates/bobaclaw-channel-web" }
 bobaclaw-scheduler = { path = "crates/bobaclaw-scheduler" }
 bobaclaw-mcp = { path = "crates/bobaclaw-mcp" }
 rmcp = { version = "1.7", default-features = false, features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest"] }

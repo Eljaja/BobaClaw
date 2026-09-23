@@ -89,10 +89,20 @@ enum ChannelCommand {
         #[command(subcommand)]
         action: TelegramAction,
     },
+    /// Local browser chat UI (`/ui`) on channels.web.bind:port
+    Web {
+        #[command(subcommand)]
+        action: WebAction,
+    },
 }
 
 #[derive(Subcommand)]
 enum TelegramAction {
+    Start,
+}
+
+#[derive(Subcommand)]
+enum WebAction {
     Start,
 }
 
@@ -306,6 +316,8 @@ async fn cmd_doctor(paths: &BobaPaths, config: &BobaConfig) -> anyhow::Result<()
         None => println!("  telegram proxy: (direct)"),
     }
 
+    doctor_web(config);
+
     if config.mcp_servers.is_empty() {
         println!("  mcp: none configured (add mcp_servers in config.yaml)");
     } else {
@@ -320,6 +332,36 @@ async fn cmd_doctor(paths: &BobaPaths, config: &BobaConfig) -> anyhow::Result<()
         }
     }
     Ok(())
+}
+
+fn doctor_web(config: &BobaConfig) {
+    let web = &config.channels.web;
+    println!(
+        "  web ui: enabled={} standalone=http://{}:{}/ui gateway=http://{}:{}/ui",
+        web.enabled, web.bind, web.port, config.gateway.bind, config.gateway.port
+    );
+    if !web.enabled {
+        return;
+    }
+    let token_set = bobaclaw_channel_web::WebAuth::from_config(web).token_configured();
+    let exposed: Vec<&str> = [web.bind.as_str(), config.gateway.bind.as_str()]
+        .into_iter()
+        .filter(|b| !bobaclaw_core::is_loopback_bind(b))
+        .collect();
+    if token_set {
+        println!("  web token: OK ({})", web.auth_token_env);
+    } else if exposed.is_empty() {
+        println!(
+            "  web token: not set ({}) — WARNING: /api/web/* open to any local process (loopback only)",
+            web.auth_token_env
+        );
+    } else {
+        println!(
+            "  web token: MISSING — non-loopback bind {} requires env {}; web UI will refuse to start",
+            exposed.join(", "),
+            web.auth_token_env
+        );
+    }
 }
 
 async fn cmd_channel(
@@ -338,6 +380,27 @@ async fn cmd_channel(
                 );
                 spawn_in_process_scheduler(paths.clone(), config.clone(), Some(dispatcher.clone()));
                 run_telegram_polling(paths, config, Some(dispatcher)).await?;
+            }
+        },
+        ChannelCommand::Web { action } => match action {
+            WebAction::Start => {
+                let web = &config.channels.web;
+                if !web.enabled {
+                    anyhow::bail!("enable channels.web.enabled in config.yaml");
+                }
+                bobaclaw_channel_web::check_bind_policy(
+                    &web.bind,
+                    &bobaclaw_channel_web::WebAuth::from_config(web),
+                )?;
+                let dispatcher = std::sync::Arc::new(
+                    bobaclaw_agent::AgentDispatcher::new(paths.clone(), config.clone()).await?,
+                );
+                let deliveries = bobaclaw_agent::build_delivery_registry(paths.home.clone(), None);
+                dispatcher
+                    .wire_spawn_feedback(config.clone(), deliveries)
+                    .await;
+                spawn_in_process_scheduler(paths.clone(), config.clone(), Some(dispatcher.clone()));
+                bobaclaw_channel_web::serve(dispatcher, &config).await?;
             }
         },
     }

@@ -236,6 +236,7 @@ dependencies = [
  "anyhow",
  "bobaclaw-agent",
  "bobaclaw-channel-telegram",
+ "bobaclaw-channel-web",
  "bobaclaw-core",
  "bobaclaw-executor",
  "bobaclaw-gateway",
@@ -302,6 +303,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "bobaclaw-channel-web"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "bobaclaw-agent",
+ "bobaclaw-core",
+ "bobaclaw-state",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tempfile",
+ "tokio",
+ "tokio-stream",
+ "tower",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "bobaclaw-core"
 version = "0.1.0"
 dependencies = [
@@ -339,6 +361,7 @@ dependencies = [
  "axum",
  "bobaclaw-agent",
  "bobaclaw-channel-telegram",
+ "bobaclaw-channel-web",
  "bobaclaw-core",
  "bobaclaw-scheduler",
  "bobaclaw-state",

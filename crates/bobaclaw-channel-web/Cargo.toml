@@ -1,19 +1,24 @@
 [package]
-name = "bobaclaw-gateway"
+name = "bobaclaw-channel-web"
 version.workspace = true
 edition.workspace = true
+description = "Local browser chat UI channel for BobaClaw"
 
 [dependencies]
 anyhow.workspace = true
+async-trait.workspace = true
 axum.workspace = true
 bobaclaw-agent.workspace = true
 bobaclaw-core.workspace = true
-bobaclaw-channel-telegram.workspace = true
-bobaclaw-channel-web.workspace = true
-bobaclaw-scheduler.workspace = true
 bobaclaw-state.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sqlx.workspace = true
 tokio.workspace = true
+tokio-stream.workspace = true
 tracing.workspace = true
 uuid.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+tower = { version = "0.5", features = ["util"] }
