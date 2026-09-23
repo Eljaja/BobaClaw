@@ -1,6 +1,6 @@
 //! Bearer-token authentication for the gateway HTTP API.
 //!
-//! Every route except `GET /health` requires `Authorization: Bearer <token>` when a token is
+//! Every route except `GET /health` and the web UI shell page (`/ui`) requires `Authorization: Bearer <token>` when a token is
 //! configured (`gateway.auth_token` or the `gateway.auth_token_env` variable). Startup fails
 //! closed: a non-loopback bind without a token is refused.
 
@@ -14,8 +14,9 @@ use axum::response::{IntoResponse, Response};
 use axum::{Json, Router};
 use bobaclaw_core::GatewayConfig;
 
-/// Paths reachable without a token (container / load-balancer health probes).
-const PUBLIC_PATHS: &[&str] = &["/health"];
+/// Paths reachable without a token: health probes and the web UI shell page (it holds no
+/// data; its `/api/web/*` calls carry the bearer token).
+const PUBLIC_PATHS: &[&str] = &["/health", "/ui", "/ui/"];
 
 #[derive(Clone)]
 pub struct GatewayAuth {
@@ -146,6 +147,8 @@ mod tests {
     fn app(auth: GatewayAuth) -> Router {
         let router = Router::new()
             .route("/health", get(|| async { "ok" }))
+            .route("/ui", get(|| async { "page" }))
+            .route("/api/web/sessions", get(|| async { "sessions" }))
             .route("/api/agent", post(|| async { "agent" }))
             .route("/v1/chat/completions", post(|| async { "chat" }));
         with_auth(router, auth)
@@ -166,6 +169,23 @@ mod tests {
     async fn health_is_public() {
         let app = app(GatewayAuth::with_token("t0ken"));
         assert_eq!(status(app, "GET", "/health", None).await, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn web_ui_page_is_public_but_web_api_is_not() {
+        let app = app(GatewayAuth::with_token("t0ken"));
+        assert_eq!(
+            status(app.clone(), "GET", "/ui", None).await,
+            StatusCode::OK
+        );
+        assert_eq!(
+            status(app.clone(), "GET", "/api/web/sessions", None).await,
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            status(app, "GET", "/api/web/sessions", Some("Bearer t0ken")).await,
+            StatusCode::OK
+        );
     }
 
     #[tokio::test]

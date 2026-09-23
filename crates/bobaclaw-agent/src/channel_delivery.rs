@@ -41,7 +41,10 @@ pub fn build_delivery_registry(
     let mut reg = DeliveryRegistry::new();
     let outbox = Arc::new(OutboxChannelDelivery::new(paths_home));
     reg.register("cli", outbox.clone());
-    reg.register("api", outbox);
+    reg.register("api", outbox.clone());
+    // Web UI has no push channel: spawn notices go to the outbox; wake replies land in
+    // the session history and show up when the conversation is reloaded.
+    reg.register("web", outbox);
     if let Some(tg) = telegram {
         reg.register("telegram", tg);
     }

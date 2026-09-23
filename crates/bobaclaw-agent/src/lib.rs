@@ -29,3 +29,4 @@ pub use progress::{
 };
 pub use spawn_completer::SpawnCompleter;
 pub use subagent::{format_spawn_task_list, SubagentManager};
+pub use turn::sanitize_user_reply;

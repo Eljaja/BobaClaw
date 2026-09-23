@@ -16,8 +16,8 @@ pub mod turn;
 
 pub use agent_config::AgentConfig;
 pub use channels::{
-    ChannelPeer, ChannelsConfig, DmPolicy, GroupPolicy, RouteMatch, RoutingConfig, RoutingRule,
-    TelegramConfig, TelegramFormat,
+    is_loopback_bind, ChannelPeer, ChannelsConfig, DmPolicy, GroupPolicy, RouteMatch,
+    RoutingConfig, RoutingRule, TelegramConfig, TelegramFormat, WebConfig,
 };
 pub use config::{
     BobaConfig, DockerExecutorConfig, ExecutorBackend, ExecutorConfig, GatewayConfig,

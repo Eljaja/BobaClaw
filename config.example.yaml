@@ -71,6 +71,17 @@ channels:
     proxy_url: ""
     proxy_env: TELEGRAM_PROXY
 
+  # Local browser chat UI: http://127.0.0.1:18790/ui (gateway) or
+  # `bobaclaw channel web start` (standalone, bind/port below). Off by default.
+  # /api/web/* requires `Authorization: Bearer <token>` when the env var below is set;
+  # a non-loopback bind without a token is refused.
+  web:
+    enabled: false
+    bind: 127.0.0.1
+    port: 18791
+    auth_token_env: BOBACLAW_GATEWAY_TOKEN
+    title: BobaClaw
+
 scheduler:
   enabled: true
   embedded: false   # true = also run inside `bobaclaw chat`; gateway/telegram always in-process

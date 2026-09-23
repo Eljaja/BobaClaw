@@ -95,19 +95,123 @@ impl<'a> SessionStore<'a> {
         {
             return Ok(id);
         }
+        self.create_session(agent_group, ingress).await
+    }
 
+    /// Always create a fresh (non-routed) session for an ingress, e.g. web UI "New chat".
+    pub async fn create_session(
+        &self,
+        agent_group: &str,
+        ingress: IngressKind,
+    ) -> anyhow::Result<String> {
         let id = format!("sess_{}", Uuid::new_v4());
         let now = Utc::now().timestamp_millis() as f64 / 1000.0;
         sqlx::query(
             "INSERT INTO sessions (id, source, agent_group, started_at) VALUES (?1, ?2, ?3, ?4)",
         )
         .bind(&id)
-        .bind(&source)
+        .bind(ingress_source(ingress))
         .bind(agent_group)
         .bind(now)
         .execute(self.pool)
         .await?;
         Ok(id)
+    }
+
+    /// Session metadata (source, group, end state), or `None` if the id is unknown.
+    pub async fn get_session(&self, session_id: &str) -> anyhow::Result<Option<SessionInfo>> {
+        let row = sqlx::query_as::<_, (String, String, String, f64, Option<f64>)>(
+            "SELECT id, source, agent_group, started_at, ended_at FROM sessions WHERE id = ?1",
+        )
+        .bind(session_id)
+        .fetch_optional(self.pool)
+        .await?;
+        Ok(row.map(
+            |(id, source, agent_group, started_at, ended_at)| SessionInfo {
+                id,
+                source,
+                agent_group,
+                started_at,
+                ended_at,
+            },
+        ))
+    }
+
+    /// Sessions created by one ingress for one agent group, most recently active first.
+    ///
+    /// `title` is the stored session title, else a snippet of the first user message.
+    pub async fn list_sessions_for_ingress(
+        &self,
+        agent_group: &str,
+        ingress: IngressKind,
+        limit: i64,
+    ) -> anyhow::Result<Vec<SessionSummary>> {
+        let rows = sqlx::query_as::<
+            _,
+            (
+                String,
+                Option<String>,
+                f64,
+                Option<f64>,
+                i64,
+                Option<f64>,
+                Option<String>,
+            ),
+        >(
+            "SELECT s.id, s.title, s.started_at, s.ended_at, s.message_count,
+                    (SELECT MAX(m.timestamp) FROM messages m WHERE m.session_id = s.id) AS last_ts,
+                    (SELECT m.content FROM messages m
+                      WHERE m.session_id = s.id AND m.role = 'user'
+                      ORDER BY m.id ASC LIMIT 1) AS first_user
+             FROM sessions s
+             WHERE s.source = ?1 AND s.agent_group = ?2
+             ORDER BY COALESCE(last_ts, s.started_at) DESC, s.started_at DESC
+             LIMIT ?3",
+        )
+        .bind(ingress_source(ingress))
+        .bind(agent_group)
+        .bind(limit.clamp(1, 500))
+        .fetch_all(self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(
+                |(id, title, started_at, ended_at, message_count, last_ts, first_user)| {
+                    let title = title
+                        .filter(|t| !t.trim().is_empty())
+                        .or_else(|| first_user.map(|u| title_snippet(&u, SESSION_TITLE_CHARS)))
+                        .filter(|t| !t.is_empty())
+                        .unwrap_or_else(|| "New chat".to_string());
+                    SessionSummary {
+                        id,
+                        title,
+                        started_at,
+                        updated_at: last_ts.unwrap_or(started_at),
+                        ended_at,
+                        message_count,
+                    }
+                },
+            )
+            .collect())
+    }
+
+    /// Messages with timestamps for display (all roles, ordered by id).
+    pub async fn list_history(&self, session_id: &str) -> anyhow::Result<Vec<HistoryMessage>> {
+        let rows = sqlx::query_as::<_, (i64, String, String, f64)>(
+            "SELECT id, role, COALESCE(content, ''), timestamp FROM messages WHERE session_id = ?1 ORDER BY id ASC",
+        )
+        .bind(session_id)
+        .fetch_all(self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(id, role, content, timestamp)| HistoryMessage {
+                id,
+                role,
+                content,
+                timestamp,
+            })
+            .collect())
     }
 
     pub async fn get_or_create_cli(&self, agent_group: &str) -> anyhow::Result<String> {
@@ -317,6 +421,50 @@ pub struct StoredMessage {
     pub covers_through_id: Option<i64>,
 }
 
+/// Session metadata row.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SessionInfo {
+    pub id: String,
+    pub source: String,
+    pub agent_group: String,
+    pub started_at: f64,
+    pub ended_at: Option<f64>,
+}
+
+/// One entry of a session list (web UI sidebar).
+#[derive(Debug, Clone, PartialEq)]
+pub struct SessionSummary {
+    pub id: String,
+    pub title: String,
+    pub started_at: f64,
+    /// Timestamp of the latest message, or `started_at` for an empty session.
+    pub updated_at: f64,
+    pub ended_at: Option<f64>,
+    pub message_count: i64,
+}
+
+/// A persisted message with its timestamp (display / history view).
+#[derive(Debug, Clone, PartialEq)]
+pub struct HistoryMessage {
+    pub id: i64,
+    pub role: String,
+    pub content: String,
+    pub timestamp: f64,
+}
+
+const SESSION_TITLE_CHARS: usize = 60;
+
+/// Single-line, whitespace-collapsed prefix of `text` (max `max` chars, `…` when cut).
+fn title_snippet(text: &str, max: usize) -> String {
+    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if flat.chars().count() <= max {
+        return flat;
+    }
+    let mut out: String = flat.chars().take(max).collect();
+    out.push('…');
+    out
+}
+
 #[derive(Debug, Clone)]
 pub struct MessageSearchHit {
     pub session_id: String,
@@ -345,6 +493,7 @@ fn ingress_source(kind: IngressKind) -> String {
         IngressKind::Webhook => "webhook",
         IngressKind::Chat => "chat",
         IngressKind::Telegram => "telegram",
+        IngressKind::Web => "web",
         IngressKind::SpawnWake => "spawn_wake",
     }
     .to_string()
@@ -444,6 +593,88 @@ mod tests {
         assert_eq!(rows[2].role, "compaction");
         assert_eq!(rows[2].covers_through_id, Some(boundary));
         assert_eq!(store.list_messages(&sid).await.unwrap().len(), 3);
+    }
+
+    #[tokio::test]
+    async fn create_and_list_sessions_for_ingress() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = StateDb::open(&dir.path().join("state.db")).await.unwrap();
+        let store = SessionStore::new(db.pool());
+
+        let a = store
+            .create_session("home", IngressKind::Web)
+            .await
+            .unwrap();
+        let b = store
+            .create_session("home", IngressKind::Web)
+            .await
+            .unwrap();
+        assert_ne!(a, b);
+        // Other ingress / group must not show up.
+        let cli = store.get_or_create_cli("home").await.unwrap();
+        store.append_message(&cli, "user", "cli msg").await.unwrap();
+        let _other = store
+            .create_session("work", IngressKind::Web)
+            .await
+            .unwrap();
+        // Timestamps have millisecond resolution; keep ordering deterministic.
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+
+        store
+            .append_message(&a, "user", "  Deploy   the\nstaging cluster please ")
+            .await
+            .unwrap();
+        store.append_message(&a, "assistant", "done").await.unwrap();
+
+        let list = store
+            .list_sessions_for_ingress("home", IngressKind::Web, 50)
+            .await
+            .unwrap();
+        assert_eq!(list.len(), 2);
+        // `a` has the latest message, so it sorts first.
+        assert_eq!(list[0].id, a);
+        assert_eq!(list[0].title, "Deploy the staging cluster please");
+        assert_eq!(list[0].message_count, 2);
+        assert!(list[0].updated_at >= list[0].started_at);
+        assert_eq!(list[1].id, b);
+        assert_eq!(list[1].title, "New chat");
+        assert_eq!(list[1].updated_at, list[1].started_at);
+
+        let info = store.get_session(&a).await.unwrap().unwrap();
+        assert_eq!(info.source, "web");
+        assert_eq!(info.agent_group, "home");
+        assert!(info.ended_at.is_none());
+        assert!(store.get_session("sess_missing").await.unwrap().is_none());
+
+        // Creating a web session does not affect get_or_create_for_ingress for CLI.
+        assert_eq!(store.get_or_create_cli("home").await.unwrap(), cli);
+    }
+
+    #[tokio::test]
+    async fn list_history_has_timestamps_and_roles() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = StateDb::open(&dir.path().join("state.db")).await.unwrap();
+        let store = SessionStore::new(db.pool());
+        let sid = store
+            .create_session("home", IngressKind::Web)
+            .await
+            .unwrap();
+        store.append_message(&sid, "user", "q").await.unwrap();
+        store.append_message(&sid, "assistant", "a").await.unwrap();
+        store.append_compaction(&sid, "sum", 1).await.unwrap();
+        let rows = store.list_history(&sid).await.unwrap();
+        assert_eq!(
+            rows.iter().map(|r| r.role.as_str()).collect::<Vec<_>>(),
+            vec!["user", "assistant", "compaction"]
+        );
+        assert!(rows.iter().all(|r| r.timestamp > 0.0));
+        assert!(rows.windows(2).all(|w| w[0].id < w[1].id));
+    }
+
+    #[test]
+    fn title_snippet_truncates_on_chars() {
+        assert_eq!(title_snippet("a  b\n c", 10), "a b c");
+        assert_eq!(title_snippet("привет мир", 6), "привет…");
     }
 
     #[tokio::test]

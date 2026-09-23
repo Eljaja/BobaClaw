@@ -16,6 +16,7 @@ bobaclaw-core.workspace = true
 bobaclaw-executor.workspace = true
 bobaclaw-gateway.workspace = true
 bobaclaw-channel-telegram.workspace = true
+bobaclaw-channel-web.workspace = true
 bobaclaw-scheduler.workspace = true
 bobaclaw-provider.workspace = true
 bobaclaw-skill-forge.workspace = true

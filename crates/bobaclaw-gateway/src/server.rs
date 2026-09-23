@@ -67,6 +67,7 @@ pub async fn serve(paths: BobaPaths, config: BobaConfig) -> anyhow::Result<()> {
         .route("/api/spawn/jobs", get(api_spawn_jobs_list))
         .route("/api/spawn/jobs/{id}", get(api_spawn_job_get))
         .with_state(state);
+    let app = bobaclaw_channel_web::mount(app, dispatcher.clone(), &config)?;
     let app = with_auth(app, auth);
 
     spawn_in_process_scheduler(paths.clone(), config.clone(), Some(dispatcher.clone()));
