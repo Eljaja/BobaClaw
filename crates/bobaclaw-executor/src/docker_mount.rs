@@ -68,7 +68,7 @@ mod tests {
 
     #[test]
     fn docker_bind_source_without_host_home_uses_canonical() {
-        let _lock = env_lock().lock().unwrap();
+        let _lock = env_lock().lock().unwrap_or_else(|e| e.into_inner());
         let _host = EnvVarGuard::clear("BOBACLAW_HOST_HOME");
 
         let dir = TempDir::new().unwrap();
@@ -78,7 +78,7 @@ mod tests {
 
     #[test]
     fn docker_bind_source_remaps_container_home_to_host_home() {
-        let _lock = env_lock().lock().unwrap();
+        let _lock = env_lock().lock().unwrap_or_else(|e| e.into_inner());
         let container = TempDir::new().unwrap();
         let host = TempDir::new().unwrap();
         let workspace = container.path().join("workspace");
@@ -88,6 +88,7 @@ mod tests {
         let _host_home = EnvVarGuard::set("BOBACLAW_HOST_HOME", host.path().to_str().unwrap());
 
         let got = docker_bind_source(&workspace).unwrap();
-        assert_eq!(got, host.path().join("workspace"));
+        // Canonical: on macOS the temp dir lives under /var -> /private/var.
+        assert_eq!(got, host.path().canonicalize().unwrap().join("workspace"));
     }
 }

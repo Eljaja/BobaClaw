@@ -93,8 +93,8 @@ mod tests {
             .iter()
             .any(|n| { *n == "subagent" || *n == "spawn" || *n == "spawn_status" }));
         assert!(!names.iter().any(|n| n.starts_with("schedule")));
-        assert!(!names.iter().any(|n| *n == "memory_manage"));
-        assert!(!names.iter().any(|n| *n == "memory_search"));
+        assert!(!names.contains(&"memory_manage"));
+        assert!(!names.contains(&"memory_search"));
     }
 
     #[test]

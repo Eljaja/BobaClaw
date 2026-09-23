@@ -1,17 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ToolsConfig {
     #[serde(default)]
     pub web_fetch: WebFetchConfig,
-}
-
-impl Default for ToolsConfig {
-    fn default() -> Self {
-        Self {
-            web_fetch: WebFetchConfig::default(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

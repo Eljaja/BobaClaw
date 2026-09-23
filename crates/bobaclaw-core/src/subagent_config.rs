@@ -84,7 +84,7 @@ pub struct SubagentPreset {
     pub skills: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SubagentBackendsConfig {
     #[serde(default)]
     pub claude_code: ClaudeCodeBackendConfig,
@@ -92,16 +92,6 @@ pub struct SubagentBackendsConfig {
     pub codex: CodexBackendConfig,
     #[serde(default)]
     pub cursor: CursorBackendConfig,
-}
-
-impl Default for SubagentBackendsConfig {
-    fn default() -> Self {
-        Self {
-            claude_code: ClaudeCodeBackendConfig::default(),
-            codex: CodexBackendConfig::default(),
-            cursor: CursorBackendConfig::default(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

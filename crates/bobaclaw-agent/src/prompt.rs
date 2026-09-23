@@ -353,22 +353,22 @@ fn assemble_system_prompt(
     let mut parts = stable.join("\n\n");
 
     let mut context_sections: Vec<String> = Vec::new();
-    if let Some(soul) = load_workspace_file(&workspace_path, "SOUL.md") {
+    if let Some(soul) = load_workspace_file(workspace_path, "SOUL.md") {
         context_sections.push(format!("## SOUL.md\n{soul}"));
     }
-    if let Some(rules) = load_workspace_file(&workspace_path, "BOBACLAW.md") {
+    if let Some(rules) = load_workspace_file(workspace_path, "BOBACLAW.md") {
         context_sections.push(format!("## BOBACLAW.md\n{rules}"));
     }
-    if let Some(user) = load_workspace_file(&workspace_path, "USER.md") {
+    if let Some(user) = load_workspace_file(workspace_path, "USER.md") {
         context_sections.push(format!("## USER.md\n{user}"));
     }
-    if let Some(tools) = load_workspace_file(&workspace_path, "TOOLS.md") {
+    if let Some(tools) = load_workspace_file(workspace_path, "TOOLS.md") {
         context_sections.push(format!("## TOOLS.md\n{tools}"));
     }
-    if let Some(memory) = load_workspace_file(&workspace_path, "MEMORY.md") {
+    if let Some(memory) = load_workspace_file(workspace_path, "MEMORY.md") {
         context_sections.push(format!("## MEMORY.md\n{memory}"));
     }
-    for section in load_memory_dir(&workspace_path) {
+    for section in load_memory_dir(workspace_path) {
         context_sections.push(section);
     }
 

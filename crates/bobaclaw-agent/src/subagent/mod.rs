@@ -52,6 +52,7 @@ impl SubagentManager {
         *self.completer.write().await = Some(completer);
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn run_sync(
         &self,
         pool: &SqlitePool,
@@ -384,6 +385,7 @@ impl SubagentManager {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn finalize_subagent_ledger(
     ledger: &RunLedger<'_>,
     subagent_id: &str,

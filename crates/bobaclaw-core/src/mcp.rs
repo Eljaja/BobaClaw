@@ -117,6 +117,21 @@ impl McpServerConfig {
     }
 }
 
+/// Resolve `$VAR` / `${VAR}` from the host environment; leave literal otherwise.
+pub fn resolve_env_value(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.starts_with("${") && trimmed.ends_with('}') {
+        let key = &trimmed[2..trimmed.len() - 1];
+        return std::env::var(key).unwrap_or_default();
+    }
+    if let Some(key) = trimmed.strip_prefix('$') {
+        if !key.is_empty() && key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+            return std::env::var(key).unwrap_or_default();
+        }
+    }
+    raw.to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -143,19 +158,4 @@ mod tests {
         };
         assert_eq!(cfg.resolve_auth_token().as_deref(), Some("test-token"));
     }
-}
-
-/// Resolve `$VAR` / `${VAR}` from the host environment; leave literal otherwise.
-pub fn resolve_env_value(raw: &str) -> String {
-    let trimmed = raw.trim();
-    if trimmed.starts_with("${") && trimmed.ends_with('}') {
-        let key = &trimmed[2..trimmed.len() - 1];
-        return std::env::var(key).unwrap_or_default();
-    }
-    if let Some(key) = trimmed.strip_prefix('$') {
-        if !key.is_empty() && key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-            return std::env::var(key).unwrap_or_default();
-        }
-    }
-    raw.to_string()
 }

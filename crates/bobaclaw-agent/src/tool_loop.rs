@@ -42,6 +42,7 @@ pub struct ToolLoopOutcome {
     pub memory_manage_used: bool,
     pub last_run_id: Option<String>,
     pub tool_persist: Vec<ToolPersistEntry>,
+    #[allow(dead_code)]
     pub hit_iteration_limit: bool,
     pub interrupted: bool,
 }

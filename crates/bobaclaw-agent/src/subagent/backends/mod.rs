@@ -14,6 +14,7 @@ use uuid::Uuid;
 use crate::progress::{emit, AgentEvent, AgentProgress};
 use crate::subagent::SubagentRunResult;
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run_claude_code(
     paths: &BobaPaths,
     config: &BobaConfig,
@@ -43,6 +44,7 @@ pub async fn run_claude_code(
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run_codex(
     paths: &BobaPaths,
     config: &BobaConfig,
@@ -72,6 +74,7 @@ pub async fn run_codex(
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run_cursor_local(
     paths: &BobaPaths,
     config: &BobaConfig,

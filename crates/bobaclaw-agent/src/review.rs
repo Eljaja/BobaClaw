@@ -58,7 +58,7 @@ pub struct PostTurnReviewOutcome {
 pub fn should_run_memory_review(user_message_count: usize, memory_manage_used: bool) -> bool {
     !memory_manage_used
         && user_message_count > 0
-        && user_message_count % MEMORY_REVIEW_TURN_THRESHOLD == 0
+        && user_message_count.is_multiple_of(MEMORY_REVIEW_TURN_THRESHOLD)
 }
 
 pub fn should_run_skill_review(tool_call_count: usize, skill_manage_used: bool) -> bool {
