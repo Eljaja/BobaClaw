@@ -79,7 +79,7 @@ Current gap: `allowed_groups: []` denies all groups; no observe transcript, no s
 Do not implement unless re-prioritized:
 
 - Channel breadth race (Discord/Slack/WhatsApp) — commodity, low differentiation.
-- Web UI / control panel — TUI (F11) covers the operator loop.
+- Web control panel / admin UI — TUI (F11) covers the operator loop. (A local chat-only Web UI channel shipped separately: [web-ui-channel](completed/web-ui-channel.md).)
 - Skill marketplace/registry — security liability; local skills + guard audit only.
 - Anthropic-native protocol — OpenAI-compatible surface is sufficient for now.
 - OpenAGI-style observation daemon / screen watching — Watcher (F12) with explicit sources is the deliberate alternative.

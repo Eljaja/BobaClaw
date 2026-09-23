@@ -1,7 +1,7 @@
 # BobaClaw: as-built architecture and feature list
 
 **Status:** factual snapshot of runtime code (not roadmap)  
-**Updated:** 2026-06-09  
+**Updated:** 2026-09-23  
 **Audience:** operators and contributors  
 **Related:** [ARCHITECTURE.md](ARCHITECTURE.md) (target design), [features.md](features.md) (comparison vs references — partially stale on subagents)
 
@@ -16,6 +16,7 @@ flowchart TB
   subgraph ingress [Ingress]
     CLI["CLI: agent / chat"]
     TG[Telegram long-poll]
+    WEB["Web UI\n/ui + /api/web/* (SSE)"]
     GW["Gateway HTTP\n/health, /v1/chat/completions\n/api/agent, /api/spawn/*"]
   end
 
@@ -64,6 +65,7 @@ flowchart TB
   CLI --> DISP
   TG --> PAIR --> DISP
   GW --> DISP
+  WEB --> DISP
   SCHED --> DISP
 
   DISP --> LOOP --> TURN
@@ -84,7 +86,7 @@ flowchart TB
 
 ### Message flow (happy path)
 
-1. **Ingress** → `NormalizedRequest` (CLI / Telegram / REST / OpenAI-compat).
+1. **Ingress** → `NormalizedRequest` (CLI / Telegram / Web UI / REST / OpenAI-compat).
 2. **Policy** (Telegram): pairing / allowlist / group rules → drop or pairing code.
 3. **Routing**: `(channel, peer) → agent_group` from `config.yaml`.
 4. **Session**: `SessionStore.resolve_session()` — history in SQLite.
@@ -94,7 +96,7 @@ flowchart TB
 8. **Background**: post-turn memory/skill review (async, Hermes-style).
 9. **Outbound**: Telegram edit/stream or CLI outbox for scheduled delivery.
 
-### Rust workspace (13 crates)
+### Rust workspace (14 crates)
 
 | Crate | Role |
 |-------|------|
@@ -106,6 +108,7 @@ flowchart TB
 | `bobaclaw-agent` | Agent loop, tools, compaction, subagents, review |
 | `bobaclaw-gateway` | axum HTTP server |
 | `bobaclaw-channel-telegram` | Telegram adapter |
+| `bobaclaw-channel-web` | Local browser chat UI (`/ui`, `/api/web/*`, SSE) |
 | `bobaclaw-scheduler` | Cron + delayed tasks |
 | `bobaclaw-skills` | `SKILL.md` registry, guard, enable/disable |
 | `bobaclaw-skill-forge` | draft-from-run → promote |
@@ -140,6 +143,7 @@ flowchart TB
 | REPL | `bobaclaw chat` — readline, history, markdown render |
 | CLI slash commands | `/help`, `/new`, `/session`, `/compact`, `/stop`, `/subagents`, `/skills`, `/doctor`, `/quit` |
 | Gateway | `bobaclaw gateway start` → `127.0.0.1:18790` |
+| Web UI | `bobaclaw channel web start` → `127.0.0.1:18791/ui` (or `/ui` on the gateway) |
 | Skills CLI | `list`, `view`, `enable`, `disable`, `drafts`, `guard`, `draft-from-run`, `promote` |
 | Pairing | `pairing list/approve` |
 | Schedule CLI | `schedule list/cancel` |
@@ -155,12 +159,13 @@ flowchart TB
 | `POST /api/agent/interrupt` | Interrupt turn: `{ scope? (session:<id>), session_id?, agent_group? }` (default: group's REST/OpenAI sessions) |
 | `GET /api/spawn/jobs?session_id=` | List background spawn jobs |
 | `GET /api/spawn/jobs/{id}` | Spawn job details |
+| `GET /ui`, `/api/web/*` | Web UI channel when `channels.web.enabled` (see below) |
 
 Gateway also **automatically** starts Telegram long-poll and in-process scheduler when enabled in config.
 
 ### Channels
 
-**Telegram only** (`bobaclaw channel telegram start` or via gateway):
+**Telegram** (`bobaclaw channel telegram start` or via gateway):
 
 - Long-poll, webhook cleanup
 - DM policies: `pairing` / `allowlist` / `open`
@@ -175,12 +180,14 @@ Gateway also **automatically** starts Telegram long-poll and in-process schedule
 
 **CLI** — full channel with sessions and outbox for scheduled messages.
 
+**Web UI** — see [Web UI channel](#web-ui-channel) below.
+
 ### Agent loop
 
 - LLM ↔ tools loop up to `max_tool_iterations` (default 60)
 - Nudges on empty replies (`max_action_retries`, `max_empty_response_retries`)
 - **Serialization**: all turns on one session (user messages, spawn wakes, scheduled tasks) run one at a time
-- **Interrupt / steering**: a new user message (CLI/chat/Telegram) cancels the current turn on its session and older queued user messages; background ingress (spawn wake, cron, webhook, REST, OpenAI-compat) never cancels, it queues; `/stop`, Ctrl+C, `/api/agent/interrupt`
+- **Interrupt / steering**: a new user message (CLI/chat/Telegram/Web UI) cancels the current turn on its session and older queued user messages; background ingress (spawn wake, cron, webhook, REST, OpenAI-compat) never cancels, it queues; `/stop`, Ctrl+C, `/api/agent/interrupt`
 - Parallelism: `max_parallel_turns` (default 4) across different sessions; queued turns do not hold a slot
 - Tool results persisted in history with `<!-- tool-results -->` marker
 - Leaked tool XML filtered from model output
@@ -304,7 +311,7 @@ Spawn completion: notification to Telegram/CLI; optional wake of parent turn.
 | Dedicated file tools (read/write/edit) | `file_read`, `file_write`, `file_edit` |
 | Run output recall | `run_view` tool |
 | Credential vault / proxy | keys in env/config; external subagent backends export keys into sandbox |
-| Web UI / control panel | none |
+| Web UI / control panel | local chat UI only (`channels.web`); no admin/control panel |
 | systemd unit / hot reload | none |
 | Prometheus metrics | none |
 | `bobaclaw migrate --from openclaw` | none |
@@ -328,7 +335,26 @@ BobaClaw is a **working self-hosted MVP** with full Claw DNA core:
 Main gaps vs references (OpenClaw/Hermes/PicoClaw):
 
 1. **Channel breadth** — one channel vs 6–20+ in references
-2. **Operator UX** — no wizard, Web UI, systemd
+2. **Operator UX** — no wizard, systemd; Web UI is chat-only
 3. **Resilience** — single provider, no failover or streaming
 4. **Security** — bwrap exists; no vault, approvals, or host-danger
 5. **Tool surface** — no built-in web/file/browser tools (MCP + exec instead)
+
+---
+
+## Web UI channel
+
+**Crate:** `crates/bobaclaw-channel-web` · **Contract:** [harness/channels/web.md](../harness/channels/web.md) · **Off by default** (`channels.web.enabled: false`).
+
+| Aspect | As built |
+|--------|----------|
+| Entry points | `/ui` mounted into `gateway start` (same axum `Router`, so gateway-level layers cover it); standalone `bobaclaw channel web start` on `channels.web.bind:port` (default `127.0.0.1:18791`) with `/health` |
+| Frontend | One `include_str!` HTML page (`assets/index.html`), inline CSS/JS, no build step or CDN; sidebar of conversations, New chat, streaming turn view with collapsible tool blocks, Stop, safe markdown renderer, light/dark, mobile layout |
+| API | `GET/POST /api/web/sessions`, `GET/POST /api/web/sessions/{id}/messages` (POST streams SSE), `POST /api/web/sessions/{id}/interrupt`, `GET /api/web/config` |
+| Streaming | `AgentEvent` → `WebEvent` (`thinking`, `tool_start`, `tool_end`, `compacting`, `assistant_chunk`, `retry`, `interrupted`, `subagent_*`) + final `done` / `error`; unbounded mpsc from the progress callback into `axum::response::sse::Sse` |
+| Sessions | `IngressKind::Web` (`source = web`), one session per conversation, explicit `session_id` on every turn; preempts in-flight turns like CLI/Telegram. New store methods: `create_session`, `get_session`, `list_sessions_for_ingress`, `list_history` |
+| History | Assistant rows pass `sanitize_user_reply` (no `<!-- tool-results -->` appendix); `compaction` rows shown as collapsed summary markers |
+| Auth | Bearer token from env `channels.web.auth_token_env` (default `BOBACLAW_GATEWAY_TOKEN`), constant-time compare, on all `/api/web/*`; `/ui` is public. No token + loopback → allowed with a warning; non-loopback bind without token → startup refused |
+| Browser hardening | Nonce CSP (`default-src 'none'`, `connect-src 'self'`), `nosniff`, `X-Frame-Options: DENY`, no CORS; token only in `Authorization` header (stored in `localStorage`) |
+| Doctor | `web ui: enabled=… standalone=… gateway=…` + token/bind check |
+| Not implemented | Attachments, tool blocks in reloaded history, push of spawn/cron deliveries into the page, multi-group selection (uses `default_agent_group`) |

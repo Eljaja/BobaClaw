@@ -39,6 +39,13 @@ channels:
     proxy_url: ""
     proxy_env: TELEGRAM_PROXY
 
+  web:
+    enabled: false          # browser chat UI (/ui); needs BOBACLAW_GATEWAY_TOKEN if exposed
+    bind: 127.0.0.1
+    port: 18791
+    auth_token_env: BOBACLAW_GATEWAY_TOKEN
+    title: BobaClaw
+
 scheduler:
   enabled: true
   embedded: true

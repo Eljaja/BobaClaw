@@ -74,6 +74,16 @@ Readline-powered REPL with terminal Markdown rendering and slash commands.
 
 Long-polls Telegram Bot API. New users must complete **pairing** before chatting — see [Pairing](#pairing) below.
 
+### Web UI
+
+```bash
+# config.yaml: channels.web.enabled: true
+export BOBACLAW_GATEWAY_TOKEN=$(openssl rand -hex 24)   # optional on loopback, required otherwise
+./target/release/bobaclaw channel web start             # http://127.0.0.1:18791/ui
+```
+
+Local browser chat with conversations, live tool progress and a Stop button. With `gateway start` the same UI is served at `http://127.0.0.1:18790/ui`. The page asks for the token once and sends it as `Authorization: Bearer`. See [harness/channels/web.md](harness/channels/web.md).
+
 ### HTTP Gateway
 
 ```bash
@@ -130,6 +140,7 @@ BobaClaw
 │   ├── bobaclaw-executor     # Sandbox (bubblewrap / Docker)
 │   ├── bobaclaw-gateway      # HTTP API (axum)
 │   ├── bobaclaw-channel-telegram  # Telegram Bot API polling
+│   ├── bobaclaw-channel-web  # Local browser chat UI (/ui, SSE)
 │   ├── bobaclaw-scheduler    # Cron + delayed tasks
 │   ├── bobaclaw-skills       # Skill registry and state
 │   ├── bobaclaw-skill-forge  # Skill template generator
