@@ -128,11 +128,8 @@ impl SpawnCompleter {
             return Ok(());
         }
 
-        let scope = format!("session:{}", job.session_id);
-        if self.dispatcher.is_scope_busy(&scope).await {
-            tracing::info!("spawn wake skipped: session {scope} busy");
-            return Ok(());
-        }
+        // No busy check: SpawnWake is non-preempting, so the dispatcher queues it behind
+        // any in-flight turn on this session instead of cancelling or racing it.
 
         let since = chrono::Utc::now().timestamp_millis() as f64 / 1000.0 - 3600.0;
         let wake_count = store.count_recent_wakes(&job.session_id, since).await?;

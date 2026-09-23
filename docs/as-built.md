@@ -152,7 +152,7 @@ flowchart TB
 | `GET /health` | Liveness |
 | `POST /v1/chat/completions` | OpenAI-compatible (non-streaming) |
 | `POST /api/agent` | `{ message, agent_group? }` |
-| `POST /api/agent/interrupt` | Interrupt turn by scope |
+| `POST /api/agent/interrupt` | Interrupt turn: `{ scope? (session:<id>), session_id?, agent_group? }` (default: group's REST/OpenAI sessions) |
 | `GET /api/spawn/jobs?session_id=` | List background spawn jobs |
 | `GET /api/spawn/jobs/{id}` | Spawn job details |
 
@@ -179,8 +179,9 @@ Gateway also **automatically** starts Telegram long-poll and in-process schedule
 
 - LLM ↔ tools loop up to `max_tool_iterations` (default 60)
 - Nudges on empty replies (`max_action_retries`, `max_empty_response_retries`)
-- **Interrupt / steering**: new message in the same scope cancels the current turn; `/stop`, Ctrl+C, `/api/agent/interrupt`
-- Parallelism: `max_parallel_turns` (default 4) across different sessions
+- **Serialization**: all turns on one session (user messages, spawn wakes, scheduled tasks) run one at a time
+- **Interrupt / steering**: a new user message (CLI/chat/Telegram) cancels the current turn on its session and older queued user messages; background ingress (spawn wake, cron, webhook, REST, OpenAI-compat) never cancels, it queues; `/stop`, Ctrl+C, `/api/agent/interrupt`
+- Parallelism: `max_parallel_turns` (default 4) across different sessions; queued turns do not hold a slot
 - Tool results persisted in history with `<!-- tool-results -->` marker
 - Leaked tool XML filtered from model output
 - System prompt: identity, agent loop, tool discipline, memory/skills/scheduling/subagent hints + workspace files (`BOBACLAW.md`, `SOUL.md`, `MEMORY.md`, skills index)

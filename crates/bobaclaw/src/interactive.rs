@@ -163,8 +163,8 @@ async fn handle_slash(
             let Some(dispatcher) = dispatcher else {
                 return Ok(Some("Нет активного агента (нужен API key).".into()));
             };
-            let scope = format!("cli:{agent_group}");
-            if dispatcher.interrupt_scope(&scope).await {
+            let req = NormalizedRequest::cli("", agent_group);
+            if dispatcher.interrupt_request(&req).await {
                 Ok(Some("⚡ Прерываю текущий запрос…".into()))
             } else {
                 Ok(Some("Нет активного запроса.".into()))

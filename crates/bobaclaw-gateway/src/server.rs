@@ -213,8 +213,11 @@ async fn api_agent(
 struct ApiInterruptRequest {
     #[serde(default)]
     agent_group: Option<String>,
+    /// Raw dispatcher scope (`session:<id>`). Legacy `api:<group>` maps to the default.
     #[serde(default)]
     scope: Option<String>,
+    #[serde(default)]
+    session_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -223,19 +226,51 @@ struct ApiInterruptResponse {
     scope: String,
 }
 
+/// Interrupt by `scope`, else by `session_id`, else the group's REST and
+/// OpenAI-compat ingress sessions (reported as `api:<group>`).
 async fn api_agent_interrupt(
     State(state): State<Arc<GatewayState>>,
     Json(body): Json<ApiInterruptRequest>,
 ) -> Json<ApiInterruptResponse> {
-    let scope = body.scope.unwrap_or_else(|| {
-        format!(
-            "api:{}",
-            body.agent_group
-                .unwrap_or_else(|| state.config.default_agent_group.clone())
-        )
-    });
-    let interrupted = state.dispatcher.interrupt_scope(&scope).await;
-    Json(ApiInterruptResponse { interrupted, scope })
+    if let Some(scope) = body.scope.as_deref().filter(|s| !s.starts_with("api:")) {
+        let interrupted = state.dispatcher.interrupt_scope(scope).await;
+        return Json(ApiInterruptResponse {
+            interrupted,
+            scope: scope.to_string(),
+        });
+    }
+    if let Some(sid) = body.session_id.as_deref() {
+        let interrupted = state.dispatcher.interrupt_session(sid).await;
+        return Json(ApiInterruptResponse {
+            interrupted,
+            scope: NormalizedRequest::session_scope(sid),
+        });
+    }
+    let agent_group = body
+        .scope
+        .as_deref()
+        .and_then(|s| s.strip_prefix("api:"))
+        .map(str::to_string)
+        .or(body.agent_group)
+        .unwrap_or_else(|| state.config.default_agent_group.clone());
+    let mut interrupted = false;
+    for ingress in [IngressKind::Rest, IngressKind::OpenAiCompat] {
+        let req = NormalizedRequest {
+            request_id: uuid::Uuid::new_v4(),
+            ingress,
+            agent_group: agent_group.clone(),
+            session_id: None,
+            channel_peer: None,
+            user_text: String::new(),
+            attachments: Vec::new(),
+            model_override: None,
+        };
+        interrupted |= state.dispatcher.interrupt_request(&req).await;
+    }
+    Json(ApiInterruptResponse {
+        interrupted,
+        scope: format!("api:{agent_group}"),
+    })
 }
 
 async fn run_agent(state: Arc<GatewayState>, req: NormalizedRequest) -> String {

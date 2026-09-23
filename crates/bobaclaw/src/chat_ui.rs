@@ -39,14 +39,13 @@ impl ChatUi {
             ui.on_progress(&status, &activity_cb, event);
         };
 
-        let scope = req.dispatch_scope();
         let interrupt_dispatcher = dispatcher.clone();
-        let interrupt_scope = scope.clone();
+        let interrupt_req = req.clone();
         let interrupt_done = done.clone();
         let interrupt_listener = tokio::spawn(async move {
             let _ = tokio::signal::ctrl_c().await;
             if !interrupt_done.load(Ordering::Relaxed) {
-                interrupt_dispatcher.interrupt_scope(&interrupt_scope).await;
+                interrupt_dispatcher.interrupt_request(&interrupt_req).await;
             }
         });
 

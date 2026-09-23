@@ -1,24 +1,40 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use bobaclaw_core::{BobaConfig, BobaPaths, NormalizedRequest};
-use bobaclaw_state::SpawnJobRecord;
-use tokio::sync::{Mutex, Semaphore};
-use tokio_util::sync::CancellationToken;
+use bobaclaw_state::{SessionStore, SpawnJobRecord};
+use tokio::sync::Mutex;
 
 use crate::channel_delivery::DeliveryRegistry;
 use crate::loop_::{AgentLoop, AgentResponse};
 use crate::progress::AgentProgress;
+use crate::scope_gate::ScopeGate;
 use crate::spawn_completer::SpawnCompleter;
 
-/// Routes agent turns: parallel across sessions, serialized within one scope.
-/// New inbound for the same scope preempts the in-flight turn (Hermes interrupt mode).
+/// Routes agent turns: parallel across sessions, serialized within one session.
+///
+/// Every request is first resolved to its session id (Telegram peer route, CLI/REST
+/// ingress session, explicit `session_id` for spawn wakes / scheduled tasks), and the
+/// scope key is always `session:<id>`, so all writers to one session history are
+/// serialized regardless of ingress.
+///
+/// Preemption policy (see [`bobaclaw_core::IngressKind::preempts_in_flight`] and
+/// [`crate::scope_gate`]):
+/// * Interactive user messages (CLI, chat, Telegram) cancel the in-flight turn on
+///   their session and any older user message still queued there — newest wins.
+///   Superseded queued messages are still recorded in history and return
+///   `interrupted` without calling the LLM.
+/// * Background / programmatic ingress (spawn wake, cron, webhook, REST, OpenAI-compat)
+///   never cancels anything; it queues behind the running turn. Concurrent REST or
+///   OpenAI-compat calls without `session_id` share one ingress session per group and
+///   therefore run one after another instead of cancelling each other.
+/// * Queued requests do not hold a global `max_parallel_turns` permit.
 #[derive(Clone)]
 pub struct AgentDispatcher {
     agent: Arc<AgentLoop>,
-    permits: Arc<Semaphore>,
-    scope_locks: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
-    active_turns: Arc<Mutex<HashMap<String, CancellationToken>>>,
+    gate: Arc<ScopeGate>,
+    /// Serializes get-or-create session resolution so two concurrent first messages
+    /// from one peer cannot create two sessions.
+    resolve_lock: Arc<Mutex<()>>,
 }
 
 impl AgentDispatcher {
@@ -26,9 +42,8 @@ impl AgentDispatcher {
         let max = config.gateway.max_parallel_turns.max(1);
         Ok(Self {
             agent: Arc::new(AgentLoop::new(paths, config).await?),
-            permits: Arc::new(Semaphore::new(max)),
-            scope_locks: Arc::new(Mutex::new(HashMap::new())),
-            active_turns: Arc::new(Mutex::new(HashMap::new())),
+            gate: Arc::new(ScopeGate::new(max)),
+            resolve_lock: Arc::new(Mutex::new(())),
         })
     }
 
@@ -38,36 +53,62 @@ impl AgentDispatcher {
 
     pub async fn handle_with_progress(
         &self,
-        req: NormalizedRequest,
+        mut req: NormalizedRequest,
         progress: Option<&dyn AgentProgress>,
     ) -> anyhow::Result<AgentResponse> {
-        let scope = req.dispatch_scope();
-        self.preempt_scope(&scope).await;
+        let session_id = self.resolve_session(&req).await?;
+        req.session_id = Some(session_id.clone());
+        let scope = NormalizedRequest::session_scope(&session_id);
 
-        let _permit = self
-            .permits
-            .clone()
-            .acquire_owned()
-            .await
-            .map_err(|_| anyhow::anyhow!("agent dispatcher shut down"))?;
-
-        let scope_mutex = self.scope_lock(scope.clone()).await;
-        let _scope_guard = scope_mutex.lock().await;
-
-        let cancel = CancellationToken::new();
-        self.register_turn(&scope, cancel.clone()).await;
-        let result = self.agent.handle_with_progress(req, progress, cancel).await;
-        self.unregister_turn(&scope).await;
+        let turn = self
+            .gate
+            .enter(&scope, req.ingress.preempts_in_flight())
+            .await?;
+        let result = self
+            .agent
+            .handle_with_progress(req, progress, turn.cancel_token())
+            .await;
+        drop(turn);
         result
     }
 
-    /// Cancel the in-flight turn for a scope (CLI Ctrl+C, `/stop`, gateway interrupt).
+    /// Cancel the in-flight turn for a raw scope key (`session:<id>`).
     pub async fn interrupt_scope(&self, scope: &str) -> bool {
-        self.preempt_scope(scope).await
+        self.gate.interrupt(scope)
     }
 
+    /// `true` while a turn for this raw scope key is running or queued.
     pub async fn is_scope_busy(&self, scope: &str) -> bool {
-        self.active_turns.lock().await.contains_key(scope)
+        self.gate.is_busy(scope)
+    }
+
+    /// Cancel the in-flight turn on a session (CLI Ctrl+C, `/stop`, gateway interrupt).
+    pub async fn interrupt_session(&self, session_id: &str) -> bool {
+        self.gate
+            .interrupt(&NormalizedRequest::session_scope(session_id))
+    }
+
+    /// Cancel the in-flight turn on the session `req` would be routed to (without
+    /// creating a session). Returns `false` if there is no such session or no turn.
+    pub async fn interrupt_request(&self, req: &NormalizedRequest) -> bool {
+        match SessionStore::new(self.agent.pool()).find_session(req).await {
+            Ok(Some(sid)) => self.interrupt_session(&sid).await,
+            Ok(None) => false,
+            Err(e) => {
+                tracing::warn!("interrupt: session lookup failed: {e}");
+                false
+            }
+        }
+    }
+
+    async fn resolve_session(&self, req: &NormalizedRequest) -> anyhow::Result<String> {
+        if let Some(ref sid) = req.session_id {
+            return Ok(sid.clone());
+        }
+        let _guard = self.resolve_lock.lock().await;
+        SessionStore::new(self.agent.pool())
+            .resolve_session(req)
+            .await
     }
 
     pub async fn wire_spawn_feedback(
@@ -90,33 +131,5 @@ impl AgentDispatcher {
             .await
             .ok()
             .flatten()
-    }
-
-    async fn preempt_scope(&self, scope: &str) -> bool {
-        let token = self.active_turns.lock().await.get(scope).cloned();
-        if let Some(token) = token {
-            token.cancel();
-            true
-        } else {
-            false
-        }
-    }
-
-    async fn register_turn(&self, scope: &str, token: CancellationToken) {
-        self.active_turns
-            .lock()
-            .await
-            .insert(scope.to_string(), token);
-    }
-
-    async fn unregister_turn(&self, scope: &str) {
-        self.active_turns.lock().await.remove(scope);
-    }
-
-    async fn scope_lock(&self, scope: String) -> Arc<Mutex<()>> {
-        let mut map = self.scope_locks.lock().await;
-        map.entry(scope)
-            .or_insert_with(|| Arc::new(Mutex::new(())))
-            .clone()
     }
 }
