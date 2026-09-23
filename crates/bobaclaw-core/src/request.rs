@@ -17,6 +17,8 @@ pub enum IngressKind {
     Webhook,
     Chat,
     Telegram,
+    /// Local browser chat UI (`channels.web`).
+    Web,
     /// Synthetic wake after background spawn completion.
     SpawnWake,
 }
@@ -31,17 +33,18 @@ impl IngressKind {
             Self::Webhook => "webhook",
             Self::Chat => "chat",
             Self::Telegram => "telegram",
+            Self::Web => "web",
             Self::SpawnWake => "spawn_wake",
         }
     }
 
     /// Whether a new request of this kind cancels the in-flight turn on its session.
     ///
-    /// Interactive user messages (CLI, chat UI, Telegram) preempt: newest message wins.
+    /// Interactive user messages (CLI, chat UI, Telegram, Web UI) preempt: newest message wins.
     /// Background / programmatic ingress (spawn wake, cron, webhook, REST, OpenAI-compat)
     /// never cancels another turn; it queues behind the running one instead.
     pub fn preempts_in_flight(self) -> bool {
-        matches!(self, Self::Cli | Self::Chat | Self::Telegram)
+        matches!(self, Self::Cli | Self::Chat | Self::Telegram | Self::Web)
     }
 }
 
@@ -185,6 +188,7 @@ impl NormalizedRequest {
             IngressKind::Cron => "cron",
             IngressKind::Webhook => "webhook",
             IngressKind::Chat => "chat",
+            IngressKind::Web => "web",
             IngressKind::SpawnWake => "spawn_wake",
         }
     }
@@ -236,6 +240,14 @@ mod tests {
     }
 
     #[test]
+    fn web_ingress_labels() {
+        assert_eq!(IngressKind::Web.as_str(), "web");
+        let mut r = NormalizedRequest::cli("hi", "home");
+        r.ingress = IngressKind::Web;
+        assert_eq!(r.spawn_deliver_channel(), "web");
+    }
+
+    #[test]
     fn session_scope_key() {
         assert_eq!(NormalizedRequest::session_scope("sess_1"), "session:sess_1");
     }
@@ -245,6 +257,7 @@ mod tests {
         assert!(IngressKind::Telegram.preempts_in_flight());
         assert!(IngressKind::Cli.preempts_in_flight());
         assert!(IngressKind::Chat.preempts_in_flight());
+        assert!(IngressKind::Web.preempts_in_flight());
         assert!(!IngressKind::SpawnWake.preempts_in_flight());
         assert!(!IngressKind::Cron.preempts_in_flight());
         assert!(!IngressKind::Webhook.preempts_in_flight());

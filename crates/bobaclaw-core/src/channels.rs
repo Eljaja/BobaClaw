@@ -4,6 +4,81 @@ use serde::{Deserialize, Serialize};
 pub struct ChannelsConfig {
     #[serde(default)]
     pub telegram: TelegramConfig,
+    #[serde(default)]
+    pub web: WebConfig,
+}
+
+/// Local browser chat UI (`/ui` + `/api/web/*`). Off by default: it adds a listener.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebConfig {
+    /// Mount the web UI routes into `gateway start` and allow `channel web start`.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Bind address for the standalone `bobaclaw channel web start` server.
+    #[serde(default = "default_web_bind")]
+    pub bind: String,
+    /// Port for the standalone `bobaclaw channel web start` server.
+    #[serde(default = "default_web_port")]
+    pub port: u16,
+    /// Env var holding the bearer token required on `/api/web/*`.
+    #[serde(default = "default_web_token_env")]
+    pub auth_token_env: String,
+    /// Title shown in the browser tab and header.
+    #[serde(default = "default_web_title")]
+    pub title: String,
+}
+
+fn default_web_bind() -> String {
+    "127.0.0.1".into()
+}
+
+fn default_web_port() -> u16 {
+    18791
+}
+
+fn default_web_token_env() -> String {
+    "BOBACLAW_GATEWAY_TOKEN".into()
+}
+
+fn default_web_title() -> String {
+    "BobaClaw".into()
+}
+
+impl Default for WebConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            bind: default_web_bind(),
+            port: default_web_port(),
+            auth_token_env: default_web_token_env(),
+            title: default_web_title(),
+        }
+    }
+}
+
+impl WebConfig {
+    /// Bearer token from `auth_token_env`, if set and non-empty.
+    pub fn resolve_auth_token(&self) -> Option<String> {
+        let env = self.auth_token_env.trim();
+        if env.is_empty() {
+            return None;
+        }
+        std::env::var(env)
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    }
+}
+
+/// `true` for `127.0.0.0/8`, `::1` and `localhost`.
+pub fn is_loopback_bind(bind: &str) -> bool {
+    let host = bind.trim().trim_start_matches('[').trim_end_matches(']');
+    if host.eq_ignore_ascii_case("localhost") {
+        return true;
+    }
+    host.parse::<std::net::IpAddr>()
+        .map(|ip| ip.is_loopback())
+        .unwrap_or(false)
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -185,6 +260,34 @@ impl ChannelPeer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn web_config_defaults() {
+        let c: ChannelsConfig = serde_yaml::from_str("telegram: {}\n").unwrap();
+        assert!(!c.web.enabled);
+        assert_eq!(c.web.bind, "127.0.0.1");
+        assert_eq!(c.web.port, 18791);
+        assert_eq!(c.web.auth_token_env, "BOBACLAW_GATEWAY_TOKEN");
+        assert_eq!(c.web.title, "BobaClaw");
+        let c: ChannelsConfig =
+            serde_yaml::from_str("web:\n  enabled: true\n  port: 9000\n").unwrap();
+        assert!(c.web.enabled);
+        assert_eq!(c.web.port, 9000);
+        assert_eq!(c.web.bind, "127.0.0.1");
+    }
+
+    #[test]
+    fn loopback_bind_detection() {
+        assert!(is_loopback_bind("127.0.0.1"));
+        assert!(is_loopback_bind("127.1.2.3"));
+        assert!(is_loopback_bind("::1"));
+        assert!(is_loopback_bind("[::1]"));
+        assert!(is_loopback_bind("localhost"));
+        assert!(!is_loopback_bind("0.0.0.0"));
+        assert!(!is_loopback_bind("::"));
+        assert!(!is_loopback_bind("192.168.1.10"));
+        assert!(!is_loopback_bind("example.com"));
+    }
 
     #[test]
     fn resolve_proxy_prefers_inline_url() {

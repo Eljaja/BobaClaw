@@ -19,7 +19,7 @@ use crate::spawn_completer::SpawnCompleter;
 ///
 /// Preemption policy (see [`bobaclaw_core::IngressKind::preempts_in_flight`] and
 /// [`crate::scope_gate`]):
-/// * Interactive user messages (CLI, chat, Telegram) cancel the in-flight turn on
+/// * Interactive user messages (CLI, chat, Telegram, Web UI) cancel the in-flight turn on
 ///   their session and any older user message still queued there — newest wins.
 ///   Superseded queued messages are still recorded in history and return
 ///   `interrupted` without calling the LLM.
@@ -70,6 +70,11 @@ impl AgentDispatcher {
             .await;
         drop(turn);
         result
+    }
+
+    /// Shared state DB pool (session listing / history for channel UIs).
+    pub fn pool(&self) -> &sqlx::SqlitePool {
+        self.agent.pool()
     }
 
     /// Cancel the in-flight turn for a raw scope key (`session:<id>`).
