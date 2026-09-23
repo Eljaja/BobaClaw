@@ -7,9 +7,10 @@ Defines boundaries for the BobaClaw **runtime agent** executing commands via the
 | Dimension | BobaClaw default | Config / profile |
 |-----------|------------------|------------------|
 | **filesystem** | Scoped workspace writes | Group workspace under `~/.bobaclaw/workspace/<group>/` |
-| **network** | Off by default (`bwrap-default`) | `executor.network: true`, `bwrap-networked`, or Docker sandbox |
+| **network** | **On** by default (`executor.network: true` → `bwrap-networked` / `docker-networked`) | Set `executor.network: false` for `bwrap-default` / `docker-default` (no egress) |
 | **process execution** | Sandboxed bash in executor | Never on gateway process |
-| **credentials** | Provider key in gateway env only | Not injected into sandbox by default |
+| **environment** | Cleared: bwrap `--clearenv` + fixed `PATH`, `HOME`, `LANG`, `TERM` (+ `TMPDIR`, `APT_CONFIG`, `DEBIAN_FRONTEND` with sandbox packages); `docker exec` forwards no host env | `executor.env_passthrough: [NAME, …]` for non-secret host vars (e.g. proxies) |
+| **credentials** | Provider / channel keys in gateway env only; never inherited by the sandbox | Subagent CLI backends get only their own `api_key_env`, via a `0600` env file (bwrap) or `docker exec -e NAME` — never in the command text, `script.sh`, `capsule.yaml`, logs, or host argv |
 | **persistence** | Workspace persisted; capsules per run | `~/.bobaclaw/runs/<run_id>/` |
 | **resource limits** | Executor/backend dependent | Docker image, bwrap namespaces |
 
@@ -17,8 +18,8 @@ Defines boundaries for the BobaClaw **runtime agent** executing commands via the
 
 | Profile | Backend | Notes |
 |---------|---------|-------|
-| `bwrap-default` | bubblewrap | Default; no network |
-| `bwrap-networked` | bubblewrap | `--share-net` when policy allows |
+| `bwrap-default` | bubblewrap | `executor.network: false`; no network |
+| `bwrap-networked` | bubblewrap | `--share-net`; selected by the default config (`executor.network: true`) |
 | `readonly` | bubblewrap | read-only root binds |
 | `systemd-run` | systemd-run | Falls back to bwrap |
 | `host-danger` | host shell | Explicit approval only; never default |
@@ -29,12 +30,20 @@ Every execution:
 2. Records Run Ledger events.
 3. Captures stdout, stderr, exit code, `result.json`.
 
+### Network default (decision)
+
+The config default is `executor.network: true` so package installs and web fetches work
+out of the box; changing it would break existing deployments. The fail-closed posture below
+is a **recommended operator setting**, not the shipped default. Keys cannot leak through the
+environment either way (the sandbox env is cleared), but with network on, anything the
+sandbox can read (workspace files) can be exfiltrated.
+
 ## Recommended default (untrusted input)
 
 - scoped workspace writes only;
 - no host filesystem outside binds;
-- no credentials in sandbox;
-- no network unless task requires it and policy allows;
+- no credentials in sandbox (enforced: cleared env);
+- no network unless task requires it and policy allows (`executor.network: false`);
 - bounded output to model (head/tail); full log in capsule;
 - `bobaclaw doctor` probes bwrap user namespaces (WSL may deny).
 

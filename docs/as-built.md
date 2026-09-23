@@ -158,6 +158,22 @@ flowchart TB
 
 Gateway also **automatically** starts Telegram long-poll and in-process scheduler when enabled in config.
 
+**Auth:** every route except `GET /health` requires `Authorization: Bearer <token>` when a
+token is configured (`gateway.auth_token_env`, default `BOBACLAW_GATEWAY_TOKEN`, or inline
+`gateway.auth_token`); compared in constant time; 401 + `WWW-Authenticate: Bearer` otherwise.
+Startup fails closed: a non-loopback `gateway.bind` without a token refuses to start; a
+loopback bind without a token starts with a warning.
+
+### Security posture
+
+| Area | Behavior |
+|------|----------|
+| Sandbox env | bwrap `--clearenv` + fixed `PATH`/`HOME`/`LANG`/`TERM` (bwrap process itself also `env_clear()`); Docker `exec`/`create` forward no host env. Opt-in `executor.env_passthrough` for non-secret vars |
+| Subagent CLI keys | Passed to the child only (bwrap: `0600` env file in a private temp dir, ro-bound at `/run/bobaclaw/secrets.env`, removed after the run; Docker: `exec -e NAME`). Never in command text, `script.sh`, `capsule.yaml`, logs, or host argv |
+| Gateway HTTP | Bearer token (above); fail-closed on non-loopback binds |
+| Docker deploy | Port published on `127.0.0.1` only; token required; gateway reaches Docker through `docker-socket-proxy` on an internal network (`DOCKER_HOST=tcp://docker-socket-proxy:2375`) with only PING/VERSION/INFO/CONTAINERS/EXEC/IMAGES/POST enabled — narrows the API surface, **not** a root boundary (container create + host binds remain possible) |
+| Network | `executor.network: true` by default (compat); set `false` for untrusted input — see `harness/sandbox-contract.md` |
+
 ### Channels
 
 **Telegram only** (`bobaclaw channel telegram start` or via gateway):
@@ -329,5 +345,5 @@ Main gaps vs references (OpenClaw/Hermes/PicoClaw):
 1. **Channel breadth** — one channel vs 6–20+ in references
 2. **Operator UX** — no wizard, Web UI, systemd
 3. **Resilience** — single provider, no failover or streaming
-4. **Security** — bwrap exists; no vault, approvals, or host-danger
+4. **Security** — cleared sandbox env, gateway bearer auth, Docker API proxy; no vault, approvals, rate limiting, or host-danger
 5. **Tool surface** — no built-in web/file/browser tools (MCP + exec instead)

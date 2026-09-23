@@ -13,7 +13,7 @@ Executor profiles (v1):
 
 | Profile | Backend | Notes |
 |---------|---------|-------|
-| `bwrap-default` | bubblewrap | Default; no network |
+| `bwrap-default` | bubblewrap | `executor.network: false`; no network |
 | `bwrap-networked` | bubblewrap | `--share-net` when allowed |
 | `readonly` | bubblewrap | read-only root binds |
 | `systemd-run` | systemd-run | Falls back to bwrap if unavailable |

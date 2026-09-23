@@ -74,9 +74,63 @@ Revert the branch. New config fields use serde defaults, so old configs keep wor
 
 ## Completion notes
 
-Fill this after implementation:
+Status: implemented on branch `fix/security`. Manual Linux checks (below) still to run on a
+real host before relying on this in production.
 
-- changed files:
-- validation run:
-- known gaps:
-- follow-up work:
+### Drift from the plan
+
+- **Docker template bind stays `0.0.0.0`** inside the container (a published port cannot
+  reach a container-loopback listener). Instead: the gateway fails closed on non-loopback
+  binds without a token, and `docker-compose.prod.yml` publishes on `127.0.0.1` only.
+- **Network default unchanged** (`executor.network: true`) to avoid breaking deployments;
+  `harness/sandbox-contract.md` and ADR 003 now document the real default and recommend
+  `network: false` for untrusted input.
+- **Auth is not opt-in for exposed binds** (plan said "default remains no-auth unless token
+  configured"): no token is allowed only on loopback binds, with a warning.
+- **Extra (not in original plan):** `docker-socket-proxy` (tecnativa v0.5.0) replaces the
+  direct `/var/run/docker.sock` mount in the gateway container; gateway uses
+  `DOCKER_HOST=tcp://docker-socket-proxy:2375` over an `internal: true` network. Enabled:
+  PING, VERSION, INFO, CONTAINERS, EXEC, IMAGES, POST. This narrows the API surface but is
+  not a root boundary (container create + host binds remain possible).
+- **Extra:** `executor.env_passthrough` escape hatch (non-secret vars only), inline
+  `gateway.auth_token`, `docker/.env` gitignored, capsule artifacts now written *before* the
+  bwrap/docker run (matches the contract "saves script + capsule.yaml before run").
+
+### Changed files
+
+- `crates/bobaclaw-executor/src/{bwrap.rs,backend.rs,docker.rs,lib.rs}` — `--clearenv` +
+  whitelist (and `env_clear()` on the bwrap/systemd-run process), `SandboxEnv`, `0600`
+  secret env file, `SandboxExecutor::exec_command_with_secrets`, `docker exec -e NAME`.
+- `crates/bobaclaw-agent/src/subagent/backends/mod.rs` — no more `export KEY=… && cmd`.
+- `crates/bobaclaw-core/src/config.rs` — `gateway.auth_token_env` / `auth_token`,
+  `executor.env_passthrough`.
+- `crates/bobaclaw-gateway/src/{auth.rs,server.rs,lib.rs}`, `Cargo.toml` — bearer middleware.
+- `docker-compose.prod.yml`, `docker/config.docker.yaml`, `docker/.env.example`,
+  `scripts/docker-prod-deploy.sh`, `.github/workflows/deploy.yml`, `.gitignore`.
+- `config.example.yaml`, `harness/sandbox-contract.md`, `docs/adr/003-executor-profiles.md`,
+  `docs/as-built.md`, `README.md`.
+
+### Validation run
+
+- `cargo fmt --all` — clean.
+- `cargo clippy --workspace --all-targets` — 26 warnings, identical count to `main`
+  (all pre-existing; none introduced).
+- `cargo test --workspace --no-fail-fast` — 173 passed, 2 failed (pre-existing macOS-path
+  failures in `bobaclaw-executor` `docker_mount::tests`); baseline `main` 156 passed / same 2
+  failed (+17 new tests).
+- `make check-structure scan-secrets eval-smoke` — OK.
+- `docker compose -f docker-compose.prod.yml config` — OK.
+
+### Known gaps / still to verify manually (Linux host)
+
+- `bobaclaw agent --message "run printenv"` (bwrap backend) shows no API keys.
+- Codex / Claude Code subagent backends still authenticate via the sourced env file.
+- Prod stack through the socket proxy: sandbox `docker exec`, Obscura `docker run -i`,
+  entrypoint `docker pull`, `bobaclaw doctor`. HAProxy's 10 min client/server timeout can
+  cut idle attached streams (MCP hub reconnects once; long silent `exec` would fail).
+- Rate limiting — still out of scope.
+
+### Follow-up work
+
+- Credential vault / proxy so subagent keys never enter the sandbox at all.
+- Rootless Docker / authz plugin (or a purpose-built broker) for a real host-root boundary.
